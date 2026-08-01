@@ -1,8 +1,13 @@
 """Nowhere MCP server -- wires all modules into 8 tools.
 
 Usage:
-    python -m nowhere.server          # stdio MCP server
-    python -m nowhere.server --web 8080  # reserved for Task 11
+    nowhere                       # stdio MCP server (also: python -m nowhere.server)
+    nowhere --web                 # stdio MCP + web observer (auto-picked port)
+    nowhere --web 8080            # stdio MCP + web observer on port 8080
+
+With uvx (no install needed):
+    uvx nowhere-mcp --web
+    uvx nowhere-mcp --web 8080
 """
 
 from __future__ import annotations
@@ -62,6 +67,7 @@ _rng: random.Random = (
     else random.Random()  # 生产真随机;测试用 NOWHERE_SEED 锁
 )
 _web_port: int | None = None  # reserved for Task 11
+_web_url_announced: bool = False  # open_door 首次告知用户旁观者地址
 _tf: TimezoneFinder = TimezoneFinder()
 _recent_salience_kinds: set[str] = set()  # Bug 4: track recent salience kinds
 
@@ -897,6 +903,12 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         placememory.save_seen_humanities(_state.seen_humanities)
         excerpt = h_card["text"][:60] + ("..." if len(h_card["text"]) > 60 else "")
         prose += f"你落在了{h_card['place']}附近。这里有过——{excerpt}"
+
+    # ── 5e. web 旁观者: 首次开门告知用户地址 ───────────────────────
+    global _web_url_announced
+    if _web_port is not None and not _web_url_announced:
+        prose += f"\n（旁观者可以在这里看你走路：http://localhost:{_web_port}）"
+        _web_url_announced = True
 
     _state.last_text = prose
     _state.save()
@@ -2195,9 +2207,22 @@ def send_postcard(text: str) -> dict:
 # Entry point
 # =====================================================================
 
-if __name__ == "__main__":
+def main() -> None:
+    """Entry point for the ``nowhere`` console script and ``python -m``.
+
+    Pass ``--web`` (auto-port) or ``--web PORT`` to also start the web
+    observer. The URL is injected into the MCP server instructions so the
+    agent learns it at handshake time and can share it with the user.
+    """
     parser = argparse.ArgumentParser(description="Nowhere MCP server")
-    parser.add_argument("--web", type=int, default=None, help="Web observer port")
+    parser.add_argument(
+        "--web",
+        nargs="?",
+        const=0,
+        type=int,
+        default=None,
+        help="启动网页旁观者 (不给端口=自动选端口；--web 8080=指定端口)",
+    )
     args = parser.parse_args()
 
     # Preload ZIM in background (non-blocking)
@@ -2210,11 +2235,32 @@ if __name__ == "__main__":
     threading.Thread(target=_preload_zim, daemon=True).start()
 
     if args.web is not None:
+        import socket
+        import sys as _sys
+
         import uvicorn
         from nowhere.web import app as web_app
 
+        global _web_port
+        port = args.web
+        if port == 0:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("", 0))
+                port = s.getsockname()[1]
+        _web_port = port
+        web_url = f"http://localhost:{port}"
+
+        # Inject the URL into the MCP server instructions so the agent
+        # receives it during the initialize handshake and can tell the user.
+        mcp.instructions = (
+            f"网页旁观者已启动：{web_url}\n"
+            "你可以告诉用户在浏览器打开这个地址，实时观看你在地球上的行走、"
+            "查看地图位置和身体状态，还能在明信片下留言。"
+        )
+        print(f"[nowhere] web observer ready: {web_url}", file=_sys.stderr)
+
         async def _run_with_web() -> None:
-            config = uvicorn.Config(web_app, host="0.0.0.0", port=args.web, log_level="info")
+            config = uvicorn.Config(web_app, host="0.0.0.0", port=port, log_level="warning")
             server = uvicorn.Server(config)
             web_task = asyncio.create_task(server.serve())
             web_task.add_done_callback(lambda t: t.result() if not t.cancelled() else None)
@@ -2223,3 +2269,7 @@ if __name__ == "__main__":
         asyncio.run(_run_with_web())
     else:
         mcp.run()
+
+
+if __name__ == "__main__":
+    main()
