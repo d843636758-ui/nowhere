@@ -2,6 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>乌有乡 · 旁观者</title>
 <style>
   :root{
@@ -17,8 +18,8 @@
     padding:10px 22px 8px;box-shadow:2px 3px 0 #0002}
   #brand .t{font-family:"Kaiti","STKaiti","KaiTi_GB2312",serif;font-size:22px;letter-spacing:10px}
   #brand .s{font-size:10px;letter-spacing:3px;opacity:.65;margin-top:3px;text-align:center}
-  #mapwrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
-  #map{width:min(96vw,178vh);height:auto;max-height:92vh}
+  #mapwrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;touch-action:none;overflow:hidden}
+  #map{width:min(96vw,178vh);height:auto;max-height:92vh;transform-origin:center center;will-change:transform}
   #tip{position:fixed;z-index:20;display:none;pointer-events:none;
     background:#fffdf7;border:1px solid var(--ink);border-radius:2px;
     padding:6px 10px;font-size:12px;line-height:1.7;box-shadow:2px 3px 0 #0002;max-width:260px}
@@ -47,6 +48,15 @@
     padding:6px 12px;font:inherit;font-size:13px;border-radius:2px}
   #wall .backbtn:hover{background:#f3ead6}
   #wall h2{font-size:16px;letter-spacing:3px;font-weight:normal}
+  .walltabs{display:flex;gap:8px;flex-wrap:wrap}
+  .walltab{cursor:pointer;border:1px solid var(--line);background:#fffdf7;color:var(--ink);
+    padding:6px 10px;font:inherit;font-size:13px;border-radius:2px}
+  .walltab.active{background:var(--ink);color:#fffdf7;border-color:var(--ink)}
+  #zoomctl{position:fixed;right:10px;top:92px;z-index:7;display:flex;flex-direction:column;
+    align-items:center;gap:7px;padding:9px 7px;background:var(--card);border:1px solid var(--line);
+    border-radius:3px;box-shadow:2px 3px 0 #0001}
+  #zoomrange{writing-mode:vertical-lr;direction:rtl;width:28px;height:150px;accent-color:var(--cinnabar)}
+  #zoomvalue{border:0;background:transparent;color:var(--ink);font:11px/1 inherit;cursor:pointer;padding:3px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   .mini{cursor:pointer;border:1px solid var(--line);background:#fffdf7;padding:6px;
     transform:rotate(var(--tilt));box-shadow:1px 2px 0 #0001}
@@ -89,9 +99,19 @@
   <div class="text" id="nowtext">他在路上的时候,这里会写着他在哪。</div>
   <div class="stats" id="nowstats"></div>
 </div>
+<div id="zoomctl" aria-label="地图缩放">
+  <input id="zoomrange" type="range" min="100" max="400" step="10" value="100" aria-label="地图缩放百分比">
+  <button id="zoomvalue" type="button" title="恢复100%">100%</button>
+</div>
 <div id="wallbtn">明信片墙</div>
 <div id="wall">
-  <div class="wallhead"><button class="backbtn" id="wallback">← 返回地图</button><h2>明信片墙 · 寄回家的</h2></div>
+  <div class="wallhead">
+    <button class="backbtn" id="wallback">← 返回地图</button>
+    <div class="walltabs" role="tablist" aria-label="明信片分类">
+      <button class="walltab active" id="tabUnreplied" type="button" role="tab" aria-selected="true">明信片墙</button>
+      <button class="walltab" id="tabReplied" type="button" role="tab" aria-selected="false">寄回家的</button>
+    </div>
+  </div>
   <div class="grid" id="wallgrid"></div>
 </div>
 <div id="flip"><div class="card" id="flipcard"></div></div>
@@ -114,6 +134,56 @@ const KAITI='"Kaiti","STKaiti","KaiTi_GB2312",serif';
 const mulberry=a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
   t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296};
 const hash=s=>{let h=0;for(const ch of s)h=(h*31+ch.codePointAt(0))|0;return h};
+
+/* ── 地图缩放/拖动 ──────────────────────────── */
+let MAP_ZOOM=1,MAP_X=0,MAP_Y=0;
+const MAP_POINTERS=new Map();
+let MAP_PINCH_DIST=0,MAP_PINCH_ZOOM=1,MAP_PINCH_MID=null;
+function clampMapPan(){
+  if(MAP_ZOOM<=1){MAP_X=0;MAP_Y=0;return;}
+  const r=$("map").getBoundingClientRect();
+  const maxX=Math.max(40,(r.width/MAP_ZOOM)*(MAP_ZOOM-1)/2+innerWidth*.35);
+  const maxY=Math.max(40,(r.height/MAP_ZOOM)*(MAP_ZOOM-1)/2+innerHeight*.35);
+  MAP_X=Math.max(-maxX,Math.min(maxX,MAP_X));
+  MAP_Y=Math.max(-maxY,Math.min(maxY,MAP_Y));
+}
+function applyMapTransform(){
+  clampMapPan();
+  $("map").style.transform=`translate(${MAP_X}px,${MAP_Y}px) scale(${MAP_ZOOM})`;
+  $("zoomrange").value=String(Math.round(MAP_ZOOM*100));
+  $("zoomvalue").textContent=`${Math.round(MAP_ZOOM*100)}%`;
+}
+function setMapZoom(next,cx=innerWidth/2,cy=innerHeight/2){
+  const old=MAP_ZOOM;
+  next=Math.max(1,Math.min(4,next));
+  const ratio=next/old;
+  MAP_X=(cx-innerWidth/2)-(cx-innerWidth/2-MAP_X)*ratio;
+  MAP_Y=(cy-innerHeight/2)-(cy-innerHeight/2-MAP_Y)*ratio;
+  MAP_ZOOM=next;applyMapTransform();
+}
+$("zoomrange").addEventListener("input",e=>setMapZoom(Number(e.target.value)/100));
+$("zoomvalue").onclick=()=>{MAP_ZOOM=1;MAP_X=0;MAP_Y=0;applyMapTransform();};
+$("mapwrap").addEventListener("wheel",e=>{
+  e.preventDefault();setMapZoom(MAP_ZOOM*(e.deltaY<0?1.12:.89),e.clientX,e.clientY);
+},{passive:false});
+$("mapwrap").addEventListener("pointerdown",e=>{
+  MAP_POINTERS.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  $("mapwrap").setPointerCapture(e.pointerId);
+  if(MAP_POINTERS.size===2){const p=[...MAP_POINTERS.values()];MAP_PINCH_DIST=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);MAP_PINCH_ZOOM=MAP_ZOOM;MAP_PINCH_MID={x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};}
+});
+$("mapwrap").addEventListener("pointermove",e=>{
+  const prev=MAP_POINTERS.get(e.pointerId);if(!prev)return;
+  MAP_POINTERS.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(MAP_POINTERS.size>=2){
+    const p=[...MAP_POINTERS.values()].slice(0,2),dist=Math.hypot(p[0].x-p[1].x,p[0].y-p[1].y);
+    const mid={x:(p[0].x+p[1].x)/2,y:(p[0].y+p[1].y)/2};
+    if(MAP_PINCH_DIST){setMapZoom(MAP_PINCH_ZOOM*dist/MAP_PINCH_DIST,MAP_PINCH_MID.x,MAP_PINCH_MID.y);MAP_X+=mid.x-MAP_PINCH_MID.x;MAP_Y+=mid.y-MAP_PINCH_MID.y;MAP_PINCH_MID=mid;applyMapTransform();}
+  }else if(MAP_ZOOM>1){MAP_X+=e.clientX-prev.x;MAP_Y+=e.clientY-prev.y;applyMapTransform();}
+});
+function endMapPointer(e){MAP_POINTERS.delete(e.pointerId);if(MAP_POINTERS.size<2){MAP_PINCH_DIST=0;MAP_PINCH_MID=null;}}
+$("mapwrap").addEventListener("pointerup",endMapPointer);
+$("mapwrap").addEventListener("pointercancel",endMapPointer);
+addEventListener("resize",applyMapTransform);
 
 /* ── 悬浮信息卡 ──────────────────────────────── */
 const tip=$("tip");
@@ -426,14 +496,19 @@ function frontSVG(stamp,id){
 }
 
 /* ── 明信片墙 ─────────────────────────────────── */
-let CARDS=[];
+let CARDS=[],CARD_FILTER="unreplied";
 function renderWall(cards){
   CARDS=cards;
-  $("wallgrid").innerHTML=cards.map((c,i)=>
+  const replied=cards.filter(c=>Array.isArray(c.replies)&&c.replies.length);
+  const unreplied=cards.filter(c=>!Array.isArray(c.replies)||!c.replies.length);
+  const shown=CARD_FILTER==="replied"?replied:unreplied;
+  $("tabUnreplied").textContent=`明信片墙 ${unreplied.length}`;
+  $("tabReplied").textContent=`寄回家的 ${replied.length}`;
+  $("wallgrid").innerHTML=shown.map((c,i)=>
     `<div class="mini" style="--tilt:${(i%3-1)*1.2}deg" onclick="openCard(${c.id})">
       ${frontHTML(c.stamp||{},c.id,c.front_img)}
       <div class="cap">${(c.stamp||{}).place||""} · ${((c.stamp||{}).local_time||"").slice(0,10)}</div>
-    </div>`).join("")||"<p>还没有明信片。他寄了,这里就有。</p>";
+    </div>`).join("")||(CARD_FILTER==="replied"?"<p>还没有寄回家的明信片。</p>":"<p>没有待回复的明信片。</p>");
 }
 function openCard(id){
   const c=CARDS.find(x=>x.id===id);if(!c)return;
@@ -490,6 +565,17 @@ function setWall(open){
 }
 $("wallbtn").onclick=()=>setWall(true);
 $("wallback").onclick=()=>setWall(false);
+function setCardFilter(filter){
+  CARD_FILTER=filter;
+  const replied=filter==="replied";
+  $("tabUnreplied").classList.toggle("active",!replied);
+  $("tabReplied").classList.toggle("active",replied);
+  $("tabUnreplied").setAttribute("aria-selected",String(!replied));
+  $("tabReplied").setAttribute("aria-selected",String(replied));
+  renderWall(CARDS);
+}
+$("tabUnreplied").onclick=()=>setCardFilter("unreplied");
+$("tabReplied").onclick=()=>setCardFilter("replied");
 $("flip").onclick=e=>{if(e.target.id==="flip")closeFlip();};
 drawLand();
 load();

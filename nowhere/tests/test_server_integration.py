@@ -75,8 +75,11 @@ async def test_full_chain(respx_mock: respx.MockRouter, tmp_path, monkeypatch):
 
     # ── mark + reopen ────────────────────────────────────────────────
     server.mark_impl("测试点", "链式")
+    carried = {"name": "一颗扣子", "from": "尾道", "desc": "第一件纪念品"}
+    server._state.souvenir = carried
     r2 = await server.open_door_impl(to="测试点")
     assert r2["text"], "open_door to mark must produce prose"
+    assert server._state.souvenir == carried, "a carried souvenir must survive a new door"
     # Position may differ (mark lookup vs random) -- just must not crash
 
     # ── where_am_i ───────────────────────────────────────────────────
