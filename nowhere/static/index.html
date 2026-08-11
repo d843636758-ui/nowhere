@@ -35,6 +35,23 @@
   #now .meta{font-size:13px;letter-spacing:1px;opacity:.75;margin-bottom:8px}
   #now .text{font-size:15px;line-height:1.9;max-height:38vh;overflow:auto}
   #now .stats{margin-top:10px;font-size:12px;opacity:.7}
+  #trailopen{margin-top:10px;border:0;border-bottom:1px solid var(--ink);background:transparent;
+    color:var(--ink);font:12px/1.6 inherit;cursor:pointer;letter-spacing:2px}
+  #trail{position:fixed;top:0;left:0;bottom:0;width:min(760px,94vw);z-index:8;
+    background:var(--paper);border-right:1px solid var(--line);transform:translateX(-100%);
+    transition:transform .35s;overflow:auto;padding:24px 28px}
+  #trail.open{transform:none}
+  .trailhead{display:flex;align-items:center;gap:16px;position:sticky;top:-24px;
+    background:var(--paper);padding:18px 0 12px;z-index:2}
+  .trailhead h2{font:normal 20px/1.4 "Kaiti","STKaiti",serif;letter-spacing:5px}
+  .trailback{cursor:pointer;border:1px solid var(--line);background:#fffdf7;
+    padding:6px 12px;font:13px/1.4 inherit;border-radius:2px}
+  .trailitem{display:grid;grid-template-columns:120px 1fr;gap:20px;padding:18px 4px;
+    border-top:1px dashed var(--line)}
+  .trailtime{font-size:12px;line-height:1.8;opacity:.65}
+  .trailplace{color:var(--cinnabar)}
+  .trailtext{font-size:15px;line-height:1.9;white-space:pre-wrap}
+  .trailempty{padding:36px 4px;line-height:2;opacity:.7}
   #wallbtn{position:fixed;right:0;top:45%;z-index:6;writing-mode:vertical-rl;
     background:var(--card);border:1px solid var(--line);border-right:none;
     padding:14px 8px;cursor:pointer;font-size:14px;letter-spacing:4px;border-radius:3px 0 0 3px}
@@ -59,6 +76,7 @@
     padding:18px;box-shadow:3px 6px 0 #0002;max-height:92vh;overflow:auto}
   .card svg,.card img{width:100%;height:auto;display:block}
   .back .words{font-size:16px;line-height:2;margin:14px 0;white-space:pre-wrap}
+  .sentat{font-size:12px;opacity:.65;margin:8px 0 2px}
   .stamp{display:inline-block;border:2px solid var(--cinnabar);border-radius:50%;
     color:var(--cinnabar);font-size:12px;padding:10px 14px;transform:rotate(-8deg);
     text-align:center;line-height:1.6}
@@ -88,6 +106,11 @@
   <div class="meta" id="nowmeta">还没开门</div>
   <div class="text" id="nowtext">他在路上的时候,这里会写着他在哪。</div>
   <div class="stats" id="nowstats"></div>
+  <button id="trailopen" type="button">展开全部足迹</button>
+</div>
+<div id="trail">
+  <div class="trailhead"><button class="trailback" id="trailback" type="button">← 返回地图</button><h2>旅行足迹</h2></div>
+  <div id="traillist"></div>
 </div>
 <div id="wallbtn">明信片墙</div>
 <div id="wall">
@@ -106,6 +129,7 @@ if(typeof WORLD_CITIES==="undefined")window.WORLD_CITIES=[];
 </script>
 <script>
 const $=id=>document.getElementById(id);
+const escapeHtml=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 const W=1000,H=500;
 const proj=(lat,lon)=>[(lon+180)/360*W,(90-lat)/180*H];
 const NS="http://www.w3.org/2000/svg";
@@ -369,6 +393,22 @@ function renderNow(st){
     $("skycap").style.background=cap;$("now").style.background=card+"dd";}
 }
 
+/* ── 旅行足迹 ────────────────────────────────────────────── */
+const ACTION_ZH={land:"降落",walk:"步行",walk_to:"赶路",look:"环顾",listen:"聆听",
+  wait:"停留",ask:"询问",mark:"标记",postcard:"寄出明信片",land_history:"抵达记录"};
+function localDateTime(iso){
+  if(!iso)return "";
+  const d=new Date(iso);if(Number.isNaN(d.getTime()))return iso.slice(0,16).replace("T"," ");
+  return d.toLocaleString("zh-CN",{hour12:false,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+}
+function renderTrail(items){
+  $("trailopen").textContent=`展开全部足迹${items.length?`· ${items.length}`:""}`;
+  $("traillist").innerHTML=items.map(f=>{const when=f.at?localDateTime(f.at):(f.journey_at?`旅程内 ${f.journey_at}`:"");return `<article class="trailitem">
+    <div class="trailtime"><div>${escapeHtml(when)}</div><div>${escapeHtml(ACTION_ZH[f.action]||f.action||"足迹")}</div><div class="trailplace">${escapeHtml(f.place||"")}</div></div>
+    <div class="trailtext">${escapeHtml(f.text||"")}</div>
+  </article>`}).join("")||'<div class="trailempty">从下一步开始，走过、看过、听过的地方都会留在这里。旧旅程没有编造补写。</div>';
+}
+
 /* ── 明信片正面:真图优先,SVG 兜底 ─────────────── */
 function frontHTML(stamp,id,frontImg){
   if(frontImg)return `<img src="${frontImg}" alt="">`;
@@ -443,7 +483,8 @@ function openCard(id){
     ${frontHTML(st,c.id,c.front_img)}
     <div class="back">
       <div class="words">${c.text||""}</div>
-      <div class="stamp">${st.place||""}<br>${Math.abs(st.lat||0).toFixed(1)}°${st.lat>=0?"N":"S"} ${Math.abs(st.lon||0).toFixed(1)}°${st.lon>=0?"E":"W"}<br>${st.local_time||""}</div>
+      <div class="sentat">现实寄出 · ${c.sent_at?localDateTime(c.sent_at):"旧明信片未记录"}</div>
+      <div class="stamp">旅程内邮戳 · ${st.place||""}<br>${Math.abs(st.lat||0).toFixed(1)}°${st.lat>=0?"N":"S"} ${Math.abs(st.lon||0).toFixed(1)}°${st.lon>=0?"E":"W"}<br>${st.local_time||""}</div>
       <div class="replies">${replies}
         <div class="replybox">
           <input id="replyin" placeholder="回他一句……">
@@ -481,6 +522,7 @@ async function load(){
     ]);
     renderNow(st);
     renderMap(hist,marks,sights,cards);
+    renderTrail(hist.footprints||[]);
     renderWall(cards);
   }catch(e){/* 他不在线也不炸,下轮再来 */}
 }
@@ -490,6 +532,8 @@ function setWall(open){
 }
 $("wallbtn").onclick=()=>setWall(true);
 $("wallback").onclick=()=>setWall(false);
+$("trailopen").onclick=()=>$("trail").classList.add("open");
+$("trailback").onclick=()=>$("trail").classList.remove("open");
 $("flip").onclick=e=>{if(e.target.id==="flip")closeFlip();};
 drawLand();
 load();

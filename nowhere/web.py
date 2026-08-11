@@ -44,11 +44,12 @@ def _state():
 
 
 async def get_history(_request: Request) -> JSONResponse:
-    """落点(地名/坐标/次数) + 走过的 path。"""
+    """落点、当前路径和持久化的旅行足迹。"""
     s = _state()
     return JSONResponse({
         "landings": placememory.landings(),
         "path": s.path,
+        "footprints": placememory.journey_footprints(),
     })
 
 

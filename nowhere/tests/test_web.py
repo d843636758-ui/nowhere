@@ -98,6 +98,7 @@ def test_history_marks_sightings_endpoints(tmp_path, monkeypatch):
     h = c.get("/history").json()
     assert h["landings"][0]["place"] == "京都"
     assert "path" in h
+    assert "footprints" in h
 
     ms = c.get("/marks").json()
     assert any(m["name"] == "测试标记" for m in ms)
