@@ -1521,7 +1521,7 @@ async def listen_impl(seconds: int = 10) -> dict:
 
     full_text = sound_text + radio_text
     _state.last_text = full_text
-    _record_footprint("listen", full_text)
+    _record_footprint("listen", full_text, stream_url=stream_url, station=station)
     _state.save()
 
     return {
@@ -2078,7 +2078,13 @@ def _postmark(lat: float, lon: float) -> dict:
     return stamp
 
 
-def _record_footprint(action: str, text: str) -> None:
+def _record_footprint(
+    action: str,
+    text: str,
+    *,
+    stream_url: str | None = None,
+    station: dict | None = None,
+) -> None:
     """记录一条可见旅行足迹，不与 WorldState 的存档周期耦合。"""
     if _state.pos is None or not text:
         return
@@ -2088,6 +2094,8 @@ def _record_footprint(action: str, text: str) -> None:
         _state.pos[0],
         _state.pos[1],
         _state.place_name,
+        stream_url=stream_url,
+        station=station,
     )
 
 

@@ -51,6 +51,7 @@
   .trailtime{font-size:12px;line-height:1.8;opacity:.65}
   .trailplace{color:var(--cinnabar)}
   .trailtext{font-size:15px;line-height:1.9;white-space:pre-wrap}
+  .traillink{display:inline-block;margin-top:8px;color:var(--cinnabar);font-size:13px}
   .trailempty{padding:36px 4px;line-height:2;opacity:.7}
   #wallbtn{position:fixed;right:0;top:45%;z-index:6;writing-mode:vertical-rl;
     background:var(--card);border:1px solid var(--line);border-right:none;
@@ -401,11 +402,15 @@ function localDateTime(iso){
   const d=new Date(iso);if(Number.isNaN(d.getTime()))return iso.slice(0,16).replace("T"," ");
   return d.toLocaleString("zh-CN",{hour12:false,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
 }
+function safeHttpUrl(value){
+  try{const url=new URL(String(value||""),location.href);return /^(https?:)$/.test(url.protocol)?url.href:"";}
+  catch(e){return "";}
+}
 function renderTrail(items){
   $("trailopen").textContent=`展开全部足迹${items.length?`· ${items.length}`:""}`;
-  $("traillist").innerHTML=items.map(f=>{const when=f.at?localDateTime(f.at):(f.journey_at?`旅程内 ${f.journey_at}`:"");return `<article class="trailitem">
+  $("traillist").innerHTML=items.map(f=>{const when=f.at?localDateTime(f.at):(f.journey_at?`旅程内 ${f.journey_at}`:"");const streamUrl=safeHttpUrl(f.stream_url);const station=(f.station||{}).name||"";return `<article class="trailitem">
     <div class="trailtime"><div>${escapeHtml(when)}</div><div>${escapeHtml(ACTION_ZH[f.action]||f.action||"足迹")}</div><div class="trailplace">${escapeHtml(f.place||"")}</div></div>
-    <div class="trailtext">${escapeHtml(f.text||"")}</div>
+    <div class="trailtext">${escapeHtml(f.text||"")}${streamUrl?`<br><a class="traillink" href="${escapeHtml(streamUrl)}" target="_blank" rel="noopener noreferrer">打开${station?` ${escapeHtml(station)}`:""}电台流 ↗</a>`:""}</div>
   </article>`}).join("")||'<div class="trailempty">从下一步开始，走过、看过、听过的地方都会留在这里。旧旅程没有编造补写。</div>';
 }
 

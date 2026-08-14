@@ -209,20 +209,34 @@ def record_footprint(
     lat: float,
     lon: float,
     place: str | None = None,
+    stream_url: str | None = None,
+    station: dict | None = None,
 ) -> None:
     """持久化一次旅行行动，时间为现实 UTC。"""
     from datetime import datetime, timezone
 
     data = _load("footprints.json")
     items = data.get("items", [])
-    items.append({
+    item = {
         "action": action,
         "text": text,
         "lat": round(lat, 4),
         "lon": round(lon, 4),
         "place": place or "",
         "at": datetime.now(timezone.utc).isoformat(),
-    })
+    }
+    clean_stream_url = str(stream_url or "").strip()
+    if clean_stream_url.startswith(("http://", "https://")):
+        item["stream_url"] = clean_stream_url
+    if station:
+        public_station = {
+            key: station[key]
+            for key in ("name", "genre", "country")
+            if station.get(key) not in (None, "")
+        }
+        if public_station:
+            item["station"] = public_station
+    items.append(item)
     data["items"] = items[-_FOOTPRINTS_CAP:]
     _dump("footprints.json", data)
 

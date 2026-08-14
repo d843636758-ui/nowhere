@@ -115,6 +115,34 @@ def test_footprints_persist_newest_first(tmp_path, monkeypatch):
     assert items[0]["at"]
 
 
+def test_radio_footprint_keeps_safe_stream_url_and_public_station(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOWHERE_HOME", str(tmp_path))
+    from nowhere import placememory
+
+    placememory.record_footprint(
+        "listen",
+        "BBC World Service 在播新闻。",
+        52.18,
+        0.03,
+        "剑桥",
+        stream_url="https://example.com/live.mp3",
+        station={"name": "BBC World Service", "genre": "news", "secret": "drop-me"},
+    )
+    placememory.record_footprint(
+        "listen",
+        "不安全的地址。",
+        52.18,
+        0.03,
+        "剑桥",
+        stream_url="javascript:alert(1)",
+    )
+
+    unsafe, safe = placememory.footprints()
+    assert "stream_url" not in unsafe
+    assert safe["stream_url"] == "https://example.com/live.mp3"
+    assert safe["station"] == {"name": "BBC World Service", "genre": "news"}
+
+
 def test_journey_footprints_include_honest_legacy_evidence(tmp_path, monkeypatch):
     monkeypatch.setenv("NOWHERE_HOME", str(tmp_path))
     from nowhere import placememory
