@@ -60,6 +60,16 @@ from nowhere import (
     weather,
 )
 
+# ── Card 46: 六根时间轴 ────────────────────────────────────────────
+import json as _json
+import pathlib as _pathlib
+from datetime import date as _date
+
+try:
+    from zhdate import ZhDate as _ZhDate
+except ImportError:
+    _ZhDate = None  # graceful degradation if zhdate not installed
+
 mcp = FastMCP("nowhere")
 
 # ── Module-level state ───────────────────────────────────────────────
@@ -1757,7 +1767,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                     for bs in describe._SMELL_BY_BIOME.get(_state.biome or "", []):
                         if bs in text:
                             _state.recent_touch_sentences.append(bs)
-                    _state.recent_touch_sentences = _state.recent_touch_sentences[-10:]
+                    _state.recent_touch_sentences = _state.recent_touch_sentences[-5:]
 
     if water_text:
         sections.append(water_text)

@@ -1254,8 +1254,9 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             if fresh:
                 touch_pool = fresh
             else:
-                # Pool exhausted — reset cycle
+                # Pool exhausted — reset cycle: clear recent, consume rng to shift sequence
                 _RECENT_TOUCH.clear()
+                rng.random()  # advance rng so next pick differs
         pick = rng.choice(touch_pool)
         result += pick + "。"
 
@@ -1269,6 +1270,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
                 smell_pool = fresh
             else:
                 _RECENT_TOUCH.clear()
+                rng.random()
         result += rng.choice(smell_pool) + "。"
 
     # 海拔省略后模板可能留下"。。"
