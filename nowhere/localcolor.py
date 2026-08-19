@@ -137,11 +137,13 @@ def rhythm_event(
     rng: random.Random,
     month: int | None = None,
     recent: list[str] | None = None,
+    weekday: int | None = None,
 ) -> str | None:
     """当前时刻命中的节律文案,没有 → None。
 
     卡可带 "months": [月份列表],带了就只在那些月出现(极昼/极光/
     三文鱼季这种季节限定);没带 = 全年有效。
+    卡可带 "weekdays": [0-6], 0=周一, 6=周日;带了就只在那些天出现。
     recent: 最近出现过的文案, 跳过它们避免每步复读同一张卡。
     """
     if not place_name:
@@ -159,6 +161,9 @@ def rhythm_event(
             continue
         months = r.get("months")
         if months and month is not None and month not in months:
+            continue
+        weekdays = r.get("weekdays")
+        if weekdays is not None and weekday is not None and weekday not in weekdays:
             continue
         hits.append(r["text"])
     if not hits:

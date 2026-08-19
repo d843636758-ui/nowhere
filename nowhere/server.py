@@ -100,6 +100,500 @@ def _serialized_action(func):
     return wrapped
 
 
+# =====================================================================
+# Card 46: 六根时间轴 — helpers
+# =====================================================================
+
+_TIMEAXES_DATA_DIR = _pathlib.Path(__file__).resolve().parent / "data"
+
+# Priority: 节日 > 纪念日 > 天象 > 物候/生物钟 > 周律 > 默认
+_TP_FESTIVAL = 5
+_TP_ANNIVERSARY = 4
+_TP_METEOR = 3
+_TP_PHENOLOGY = 2
+_TP_WEEKDAY = 1
+_TP_DEFAULT = 0
+
+# Max layers per step (info overload = death)
+_MAX_TIMEAXIS_LAYERS = 2
+
+
+def _load_meteor_showers() -> dict:
+    """Load meteor_showers.json once and cache."""
+    cache_key = "_meteor_showers_cache"
+    if not hasattr(_load_meteor_showers, cache_key):
+        fp = _TIMEAXES_DATA_DIR / "meteor_showers.json"
+        if fp.exists():
+            setattr(_load_meteor_showers, cache_key,
+                    _json.loads(fp.read_text(encoding="utf-8")))
+        else:
+            setattr(_load_meteor_showers, cache_key, {})
+    return getattr(_load_meteor_showers, cache_key)
+
+
+def _load_phenology() -> dict:
+    """Load phenology.json once and cache."""
+    cache_key = "_phenology_cache"
+    if not hasattr(_load_phenology, cache_key):
+        fp = _TIMEAXES_DATA_DIR / "phenology.json"
+        if fp.exists():
+            setattr(_load_phenology, cache_key,
+                    _json.loads(fp.read_text(encoding="utf-8")))
+        else:
+            setattr(_load_phenology, cache_key, {})
+    return getattr(_load_phenology, cache_key)
+
+
+def _lunar_info(dt: datetime) -> dict | None:
+    """Get lunar date info from a UTC datetime. Returns dict or None."""
+    if _ZhDate is None:
+        return None
+    local_d = dt.astimezone(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
+    try:
+        zh = _ZhDate.from_datetime(local_d)
+    except (TypeError, Exception):
+        # from_datetime needs datetime, not date
+        try:
+            zh = _ZhDate.from_datetime(datetime(local_d.year, local_d.month, local_d.day))
+        except Exception:
+            return None
+    return {
+        "lunar_year": zh.lunar_year,
+        "lunar_month": zh.lunar_month,
+        "lunar_day": zh.lunar_day,
+        "lunar_str": f"农历{zh.lunar_month}月{zh.lunar_day}日",
+    }
+
+
+def _lunar_festival(lunar_month: int, lunar_day: int) -> str | None:
+    """Determine lunar calendar festival. Returns festival name or None."""
+    _FESTIVALS = {
+        (1, 1): "春节",
+        (1, 15): "元宵节",
+        (5, 5): "端午节",
+        (7, 7): "七夕",
+        (7, 15): "中元节",
+        (8, 15): "中秋节",
+        (9, 9): "重阳节",
+        (12, 30): "除夕",
+        (12, 29): "除夕",  # 小月年
+    }
+    return _FESTIVALS.get((lunar_month, lunar_day))
+
+
+def _is_lunar_festival_eve_or_next(lunar_month: int, lunar_day: int) -> str | None:
+    """Check if today is ±1 day from a major festival (for festival weight boost)."""
+    _MAJOR = {(1, 1), (1, 15), (5, 5), (7, 15), (8, 15), (9, 9)}
+    for m, d in _MAJOR:
+        if (m, d) == (lunar_month, lunar_day):
+            continue
+        # Check ±1 day
+        if lunar_month == m and abs(lunar_day - d) == 1:
+            return _lunar_festival(m, d)
+    return None
+
+
+def _spring_tide_check(lunar_day: int) -> bool:
+    """Check if lunar day is near 1 or 15 (spring tide)."""
+    return lunar_day in (1, 2, 14, 15, 16, 29, 30)
+
+
+def _check_meteor_shower(dt: datetime, weather_precip: str, phase: str,
+                         rng: random.Random) -> dict | None:
+    """Check if a meteor shower is active tonight. Returns dict or None."""
+    if phase not in ("night", "nautical"):
+        return None
+    if weather_precip in ("rain", "snow", "storm"):
+        return None  # can't see through clouds
+
+    data = _load_meteor_showers()
+    showers = data.get("showers", [])
+    local_d = dt.astimezone(ZoneInfo("Asia/Shanghai")).date()
+    month_day = local_d.strftime("%m-%d")
+
+    for s in showers:
+        peak = s.get("peak_date", "")
+        days = s.get("days", 3)
+        if not peak:
+            continue
+        try:
+            peak_dt = _date(local_d.year, int(peak[:2]), int(peak[3:5]))
+        except (ValueError, IndexError):
+            continue
+        diff = abs((local_d - peak_dt).days)
+        if diff <= days:
+            is_peak = diff == 0
+            return {
+                "name": s["name"],
+                "ZHR": s.get("ZHR", "中"),
+                "is_peak": is_peak,
+                "constellation": s.get("constellation", ""),
+                "hemisphere": s.get("hemisphere", "both"),
+            }
+    return None
+
+
+_LAT_BANDS = [
+    (50, 90, "cold"),
+    (35, 50, "warm"),
+    (23, 35, "sub"),
+    (0, 23, "tropical"),
+]
+
+
+def _get_lat_band(lat: float) -> str:
+    """Map latitude to phenology band."""
+    abs_lat = abs(lat)
+    for lo, hi, band in _LAT_BANDS:
+        if lo <= abs_lat < hi:
+            return band
+    return "tropical" if abs_lat < 23 else "cold"
+
+
+def _check_phenology(dt: datetime, lat: float, rng: random.Random) -> str | None:
+    """Check phenology events for current month/latitude. Returns text or None."""
+    data = _load_phenology()
+    events = data.get("events", {})
+    hemisphere = "south" if lat < 0 else "north"
+    band = _get_lat_band(lat)
+
+    hem_events = events.get(hemisphere, {})
+    band_events = hem_events.get(band, {})
+    month = dt.astimezone(ZoneInfo("Asia/Shanghai")).month
+    month_str = str(month)
+
+    month_events = band_events.get(month_str, [])
+    if not month_events:
+        return None
+    return rng.choice(month_events)
+
+
+def _check_anniversary(lat: float, lon: float, dt: datetime,
+                       seen_humanities: set[str]) -> dict | None:
+    """Check if today is the anniversary of a nearby humanities event. Returns dict or None."""
+    local_dt = dt.astimezone(ZoneInfo("Asia/Shanghai"))
+    today_month = local_dt.month
+    today_day = local_dt.day
+
+    # Get nearby humanities
+    h_card = humanities.nearby_place(lat, lon, seen_humanities, _rng)
+    if not h_card:
+        return None
+
+    ref = h_card.get("ref", {})
+    year_str = ref.get("year", "") or h_card.get("year", "")
+    if not year_str:
+        return None
+
+    # Parse year — format varies: "1950", "1467-1477", "1950-01", "1950-01-15"
+    import re
+    year_str = str(year_str).strip()
+    m = re.match(r"(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?", year_str)
+    if not m:
+        return None
+
+    event_year = int(m.group(1))
+    event_month = int(m.group(2)) if m.group(2) else None
+    event_day = int(m.group(3)) if m.group(3) else None
+
+    # Only trigger if precision includes month+day
+    if event_month is None or event_day is None:
+        return None
+
+    # Check anniversary match (±0 days only)
+    if event_month == today_month and event_day == today_day:
+        # 15% chance
+        if _rng.random() < 0.15:
+            return {
+                "place": h_card.get("place", ""),
+                "text": h_card.get("text", ""),
+                "category": h_card.get("category", "事件"),
+                "year": event_year,
+            }
+    return None
+
+
+# ── Weekday rhythm: 周律 variants (46a) ─────────────────────────────
+
+_WEEKDAY_FRIDAY_LOOSENING: list[str] = [
+    "周五傍晚,街上的人走慢了。空气里有周末的味道。",
+    "周五晚上。城里的人松下来了,酒吧的门开着。",
+    "周五。路上的车少了,人行道上多了遛弯的人。",
+    "周末前夜。霓虹灯亮得比平时早。",
+    "周五傍晚,外卖骑手比行人多。城市在松绑。",
+]
+
+_WEEKDAY_SUNDAY_MORNING: dict[str, list[str]] = {
+    "western": [
+        "周日上午,教堂的钟在远处敲。风把钟声送过来。",
+        "星期天早上。街上安静,只有教堂门口有人在寒暄。",
+        "周日。钟声从教堂的方向传来,空气里有管风琴的回声。",
+    ],
+    "east_asia": [
+        "周日早上。公园里有人在打太极,慢的,像水在流。",
+        "星期天。早市还没散,老人们提着菜往家走。",
+        "周日上午,广场上有人在跳舞,音箱放着老歌。",
+    ],
+    "commercial": [
+        "周日上午。商场还没开门,清洁工在拖地。",
+        "星期天早上。街上空荡荡的,店铺的卷帘门还没拉起来。",
+        "周日。购物中心的停车场还是空的。城市在睡懒觉。",
+    ],
+}
+
+_WEEKDAY_MONDAY_CLOSED: list[str] = [
+    "周一。博物馆闭馆日。保安在门口看手机。",
+    "星期一。图书馆不开门。台阶上坐着一个人在看书。",
+    "周一。美术馆关了。海报上的画比里面的画更容易看到。",
+]
+
+_WEEKDAY_MARKET_VARIANTS: list[str] = [
+    "赶集日。路边摆满了竹筐,筐里是活鸡活鸭,嘎嘎叫。",
+    "集市上,老太太用手掂秤,不看刻度,全凭手感。",
+    "赶集。地上铺着塑料布,上面堆着红辣椒和干蘑菇。",
+    "集市里,鸡笼摞着鸡笼,最底下那只眼神最绝望。",
+    "赶集日。竹篮里是刚摘的菜,叶子上还有虫眼。",
+    "赶集。秤砣在秤杆上滑,卖家和买家都不着急。",
+]
+
+
+def _get_weekday_rhythm(dt: datetime, lat: float, lon: float,
+                        biome: str, rng: random.Random) -> str | None:
+    """Compute weekday rhythm text. Returns text or None."""
+    tz_name = _tf.timezone_at(lat=lat, lng=lon)
+    if not tz_name:
+        return None
+    local_dt = dt.astimezone(ZoneInfo(tz_name))
+    wd = local_dt.weekday()  # 0=Mon, 4=Fri, 6=Sun
+    hour = local_dt.hour
+
+    # Friday evening (18-24): city loosens
+    if wd == 4 and 18 <= hour < 24:
+        if biome == "city":
+            return rng.choice(_WEEKDAY_FRIDAY_LOOSENING)
+
+    # Sunday morning (6-12): regional variants
+    if wd == 6 and 6 <= hour < 12:
+        cc = country.country_code_of(lat, lon)
+        region = describe._get_region(lat, lon)
+        if region in ("east_asia",):
+            return rng.choice(_WEEKDAY_SUNDAY_MORNING["east_asia"])
+        elif region in ("europe", "north_america", "oceania", "south_america"):
+            return rng.choice(_WEEKDAY_SUNDAY_MORNING["western"])
+        else:
+            return rng.choice(_WEEKDAY_SUNDAY_MORNING["commercial"])
+
+    # Monday: museum/library closed (city + art entries exist)
+    if wd == 0 and 9 <= hour < 17 and biome == "city":
+        if rng.random() < 0.3:
+            return rng.choice(_WEEKDAY_MONDAY_CLOSED)
+
+    # 赶集日: Chinese market days based on lunar calendar
+    if _ZhDate is not None:
+        try:
+            lunar = _lunar_info(dt)
+            if lunar:
+                ld = lunar["lunar_day"]
+                # 一四七/二五八/三六九 pattern (last digit of lunar day)
+                last_digit = ld % 10
+                market_groups = {1: [1, 4, 7], 2: [2, 5, 8], 3: [3, 6, 9]}
+                # Use place hash to assign market group
+                is_market_day = last_digit in (1, 4, 7)  # default group
+                if is_market_day and 8 <= hour < 14:
+                    # Only for non-city biomes or small towns
+                    if biome in ("grassland", "desert", None, "") or rng.random() < 0.2:
+                        return rng.choice(_WEEKDAY_MARKET_VARIANTS)
+        except Exception:
+            pass
+
+    return None
+
+
+# ── 节日文本变体 ─────────────────────────────────────────────────────
+
+_FESTIVAL_VARIANTS: dict[str, list[str]] = {
+    "春节": [
+        "大年初一。空气里全是火药味,地上是红色的炮仗纸。",
+        "春节。街上空了,店铺关着门,门上贴着新的福字。",
+        "过年。远处有鞭炮声,断断续续,从天亮就开始了。",
+    ],
+    "元宵节": [
+        "正月十五。灯笼挂在街上,红的黄的,风一吹晃。",
+        "元宵节。汤圆在锅里浮着,甜的。夜里的灯比月亮亮。",
+    ],
+    "端午节": [
+        "端午。空气里有粽叶的味道,糯米黏在手上。",
+        "端午节。龙舟在水上走,鼓声一下一下的。",
+    ],
+    "七夕": [
+        "七夕。夜里抬头看,银河淡淡的。街上有人在卖花。",
+    ],
+    "中元节": [
+        "七月十五。路边有人在烧纸,火光在风里摇。",
+        "中元节。夜比平时暗,空气里有纸灰的味道。",
+        "中元。河里放了灯,一盏一盏往下游漂。",
+    ],
+    "中秋节": [
+        "中秋。月亮从东边升起来,圆的,大得不像话。",
+        "八月十五。月饼甜得腻人,但你还是吃了一个。",
+        "中秋节。月亮把你的影子投在地上,比白天的太阳还清楚。",
+    ],
+    "重阳节": [
+        "重阳。远处的山上有人在登高,声音从上面传下来。",
+    ],
+    "除夕": [
+        "除夕。天还没黑就有炮声了。一年在响声里翻过去了。",
+        "年夜饭的味道从窗户里飘出来。你站在外面,闻着别人的团圆。",
+    ],
+}
+
+
+def _get_lunar_festival_text(dt: datetime, rng: random.Random) -> str | None:
+    """Check if today is a lunar festival. Returns text or None."""
+    lunar = _lunar_info(dt)
+    if not lunar:
+        return None
+    festival = _lunar_festival(lunar["lunar_month"], lunar["lunar_day"])
+    if not festival:
+        return None
+    variants = _FESTIVAL_VARIANTS.get(festival, [])
+    if not variants:
+        return None
+    return rng.choice(variants)
+
+
+# ── Meteor shower text ──────────────────────────────────────────────
+
+def _get_meteor_text(meteor: dict, rng: random.Random) -> str | None:
+    """Render meteor shower observation text."""
+    data = _load_meteor_showers()
+    variants = data.get("meteor_variants", {})
+    zhr = meteor.get("ZHR", "中")
+    pool = variants.get(zhr, variants.get("中", []))
+    if not pool:
+        return None
+    text = rng.choice(pool)
+    if meteor.get("is_peak") and zhr == "大":
+        # Peak night for major showers: add extra card
+        text += "今晚是极大夜。流星比任何时候都多。"
+    return text
+
+
+# ── Tide text (lunar-linked) ────────────────────────────────────────
+
+_TIDE_SPRING_VARIANTS: list[str] = [
+    "大潮。水涨得比平时高,岸边的礁石淹了一半。",
+    "潮水大。浪一个比一个冲得远,沙滩被吃掉了好几米。",
+    "大潮。海水涌上来,比平时多走了一步。",
+    "月亮引力把水拉高了。岸边的痕迹比昨天高出一截。",
+]
+
+
+def _check_spring_tide(dt: datetime, water_features: list[dict],
+                       rng: random.Random) -> str | None:
+    """Check spring tide near coast. Returns text or None."""
+    lunar = _lunar_info(dt)
+    if not lunar:
+        return None
+    if not _spring_tide_check(lunar["lunar_day"]):
+        return None
+    # Must be near ocean
+    has_ocean = any(f.get("type") == "ocean" for f in (water_features or []))
+    if not has_ocean:
+        return None
+    return rng.choice(_TIDE_SPRING_VARIANTS)
+
+
+def _compute_timeaxes(dt: datetime, lat: float, lon: float,
+                      biome: str, phase: str, weather_precip: str,
+                      water_features: list[dict],
+                      seen_humanities: set[str],
+                      rng: random.Random) -> list[dict]:
+    """Compute all six time axes, return list sorted by priority (highest first).
+
+    Each entry: {"priority": int, "kind": str, "text": str, "data": dict}
+    Max _MAX_TIMEAXIS_LAYERS returned.
+    """
+    layers: list[dict] = []
+
+    # 1. Festival (农历节日) — highest priority
+    fest_text = _get_lunar_festival_text(dt, rng)
+    if fest_text:
+        layers.append({
+            "priority": _TP_FESTIVAL, "kind": "festival",
+            "text": fest_text, "data": {},
+        })
+
+    # 2. Anniversary (纪念日)
+    ann = _check_anniversary(lat, lon, dt, seen_humanities)
+    if ann:
+        # Restrained tone for war/disaster, warm for cultural
+        cat = ann.get("category", "事件")
+        layers.append({
+            "priority": _TP_ANNIVERSARY, "kind": "anniversary",
+            "text": ann["text"], "data": ann,
+        })
+
+    # 3. Meteor shower (天象)
+    meteor = _check_meteor_shower(dt, weather_precip, phase, rng)
+    if meteor:
+        m_text = _get_meteor_text(meteor, rng)
+        if m_text:
+            layers.append({
+                "priority": _TP_METEOR, "kind": "meteor",
+                "text": m_text, "data": meteor,
+            })
+
+    # 4. Phenology (物候) — includes biological clock
+    pheno_text = _check_phenology(dt, lat, rng)
+    if pheno_text:
+        layers.append({
+            "priority": _TP_PHENOLOGY, "kind": "phenology",
+            "text": pheno_text, "data": {},
+        })
+
+    # 4b. Spring tide (潮汐, linked to lunar axis)
+    tide_text = _check_spring_tide(dt, water_features, rng)
+    if tide_text:
+        layers.append({
+            "priority": _TP_PHENOLOGY, "kind": "tide",
+            "text": tide_text, "data": {},
+        })
+
+    # 5. Weekday rhythm (周律)
+    wd_text = _get_weekday_rhythm(dt, lat, lon, biome, rng)
+    if wd_text:
+        layers.append({
+            "priority": _TP_WEEKDAY, "kind": "weekday",
+            "text": wd_text, "data": {},
+        })
+
+    # Sort by priority descending, take top N
+    layers.sort(key=lambda x: x["priority"], reverse=True)
+    return layers[:_MAX_TIMEAXIS_LAYERS]
+
+
+def _timeaxis_to_env(dt: datetime, lat: float, lon: float) -> dict:
+    """Compute timeaxis data for env dict (not text — time is for feeling, not reporting)."""
+    env: dict[str, Any] = {}
+    # Lunar info
+    lunar = _lunar_info(dt)
+    if lunar:
+        env["lunar"] = lunar
+    # Meteor shower status
+    tz_name = _tf.timezone_at(lat=lat, lng=lon)
+    local_dt = dt.astimezone(ZoneInfo(tz_name)) if tz_name else dt
+    phase = "night" if local_dt.hour >= 19 or local_dt.hour < 5 else "day"
+    meteor = _check_meteor_shower(dt, "none", phase, _rng)
+    if meteor:
+        env["meteor_shower"] = meteor
+    # Lat band for phenology
+    env["lat_band"] = _get_lat_band(lat)
+    # Weekday
+    env["weekday"] = local_dt.weekday() if tz_name else None
+    return env
+
+
 # ── External content sanitization (second defense) ───────────────────
 
 _RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```", re.MULTILINE)
@@ -1371,6 +1865,22 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         placememory.save_seen_cards(place_name, _state.seen_cards)
         sections.append(local_card["text"])
 
+    # ── 六根时间轴(Card 46): landing 版,最多2层 ─────────────────
+    if _now is not None:
+        _ta_layers = _compute_timeaxes(
+            _now, lat, lon,
+            _state.biome or "",
+            env["sky"].get("phase", "day"),
+            env.get("weather", {}).get("precip", "none"),
+            water_features,
+            _state.seen_humanities,
+            _rng,
+        )
+        for _ta in _ta_layers:
+            if _ta["text"] not in set(_state.recent_scenes):
+                sections.append(_ta["text"])
+                _state.recent_scenes.append(_ta["text"])
+
     for c in top3:
         if c["kind"] in ("weather", "sky", "arrive"):
             continue
@@ -1426,12 +1936,15 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
 
     # ── 6. Save complete state and environment snapshot ───────────────
     # Keep flat format consistent with _gather_env() — never nest under "terrain".
+    _now_for_ta = _state.now()
+    _ta_data = _timeaxis_to_env(_now_for_ta, lat, lon) if _now_for_ta else {}
     _state.last_env = {
         "elevation": env.get("elevation"),
         "surface": env.get("surface"),
         "weather": env.get("weather"),
         "sky": env.get("sky"),
         "radio": env.get("radio"),
+        "timeaxes": _ta_data,
         "water_features": water_features,
     }
     _state.env_pos = (lat, lon)
@@ -1453,6 +1966,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             "radio": env.get("radio"),
             "surface": env.get("surface"),
             "elevation": env.get("elevation"),
+            "timeaxes": _ta_data,
         },
     }
 
@@ -1759,15 +2273,6 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                                    recent_touch=set(_state.recent_touch_sentences))
             if text:
                 sections.append(text)
-                # Track touch/smell sentences for dedup
-                if c["kind"] == "terrain":
-                    for ts in describe._TOUCH_BY_SURFACE.get(c["payload"].get("surface", ""), []):
-                        if ts in text:
-                            _state.recent_touch_sentences.append(ts)
-                    for bs in describe._SMELL_BY_BIOME.get(_state.biome or "", []):
-                        if bs in text:
-                            _state.recent_touch_sentences.append(bs)
-                    _state.recent_touch_sentences = _state.recent_touch_sentences[-5:]
 
     if water_text:
         sections.append(water_text)
@@ -1880,9 +2385,27 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     if tz_name and now is not None:
         local_dt = now.astimezone(ZoneInfo(tz_name))
         rhythm = localcolor.rhythm_event(_state.place_name, local_dt.hour, _rng, local_dt.month,
-                                        recent=_state.recent_scenes)
+                                        recent=_state.recent_scenes,
+                                        weekday=local_dt.weekday())
         if rhythm:
             sections.append(rhythm)
+
+    # ── 5b2. 六根时间轴(Card 46): 最多2层,优先级排序 ─────────────
+    if now is not None and not env_cached:
+        _ta_layers = _compute_timeaxes(
+            now, lat, lon,
+            _state.biome or "",
+            env.get("sky", {}).get("phase", "day"),
+            env.get("weather", {}).get("precip", "none"),
+            water_features,
+            _state.seen_humanities,
+            _rng,
+        )
+        for _ta in _ta_layers:
+            # Avoid repeating text already in recent_scenes
+            if _ta["text"] not in set(_state.recent_scenes):
+                sections.append(_ta["text"])
+                _state.recent_scenes.append(_ta["text"])
 
     # ── 5c. 人文卡: 走到附近触发(非随机)──────────────────────────
     h_card = humanities.nearby_place(lat, lon, _state.seen_humanities, _rng)
@@ -1943,6 +2466,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     _state.recent_scenes = _state.recent_scenes[-5:]
 
     # ── 6. Update state.last_env ─────────────────────────────────────
+    _ta_data_walk = _timeaxis_to_env(now, lat, lon) if now else {}
     _state.last_env = {
         "elevation": env.get("elevation"),
         "surface": env.get("surface"),
@@ -1950,6 +2474,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         "sky": env.get("sky"),
         "radio": env.get("radio"),
         "water_features": water_features,
+        "timeaxes": _ta_data_walk,
     }
     _state.last_surface = current_surface
     _state.last_elevation = current_elevation
@@ -2000,6 +2525,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         "step": step_result,
         "weather": env.get("weather"),
         "sky": env.get("sky"),
+        "timeaxes": _ta_data_walk if now else {},
     }
     if _state.souvenir:
         data["souvenir"] = _state.souvenir
@@ -2382,7 +2908,8 @@ async def wait_impl(hours: float = 1.0) -> dict:
         if tz_name and _state.now() is not None:
             local_dt = _state.now().astimezone(ZoneInfo(tz_name))
             rhythm = localcolor.rhythm_event(_state.place_name, local_dt.hour, _rng, local_dt.month,
-                                        recent=_state.recent_scenes)
+                                        recent=_state.recent_scenes,
+                                        weekday=local_dt.weekday())
             if rhythm:
                 sections.append(rhythm)
 
