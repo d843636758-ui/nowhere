@@ -56,6 +56,8 @@ def _load() -> dict:
             entries = regional
         added = 0
         for k, v in entries.items():
+            if k.startswith("_"):
+                continue  # skip metadata keys like _说明
             if k not in _places:
                 _places[k] = v
                 added += 1

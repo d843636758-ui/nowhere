@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import math
 import pathlib
+import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -31,6 +32,44 @@ from nowhere import marks as marks_mod
 from nowhere import placememory
 from nowhere.server import reply_postcard_impl
 import nowhere.server as _server
+
+# ── Injection guard ──────────────────────────────────────────────────
+
+_INJECTION_PATTERNS: list[re.Pattern] = [
+    re.compile(p, re.IGNORECASE)
+    for p in [
+        r"忽略.{0,10}(之前|以上|先前|前面|所有)",
+        r"无视.{0,10}(之前|以上|先前|前面|所有)",
+        r"ignore\s+(previous|all|above|prior)\s+(instructions?|prompts?|rules?)",
+        r"ignore\s+(everything|all)\s+(above|before|prior)",
+        r"以上.{0,6}(指令|命令|规则|指示|提示词)",
+        r"system\s*prompt",
+        r"你现在是",
+        r"new\s+instructions",
+        r"disregard\s+(previous|all|above|prior)",
+        r"forget\s+(everything|all|your)\s+(instructions?|rules?|prompts?)",
+        r"你(现在)?的角色是",
+        r"你是一个(?!什么)",
+        r"act\s+as\s+(?:a\s+)?(?:different|new|another)",
+        r"override\s+(?:previous|all|your)\s+(?:instructions?|rules?)",
+    ]
+]
+
+_MSG_MAX_LEN = 200
+_REPLY_MAX_LEN = 300
+
+
+def _strip_control_chars(text: str) -> str:
+    """Remove control characters (\\x00-\\x1f) but keep newlines."""
+    return re.sub(r"[\x00-\x09\x0b-\x1f]", "", text)
+
+
+def _check_injection(text: str) -> bool:
+    """Return True if text matches any injection pattern."""
+    for pat in _INJECTION_PATTERNS:
+        if pat.search(text):
+            return True
+    return False
 
 _STATIC_DIR = pathlib.Path(__file__).resolve().parent / "static"
 
@@ -141,8 +180,11 @@ async def post_message(request: Request) -> JSONResponse:
     content = content.strip()
     if not content:
         return JSONResponse({"ok": False, "error": "empty content"}, status_code=400)
-    if len(content) > 1000:
-        return JSONResponse({"ok": False, "error": "too_long"}, status_code=400)
+    # -- Injection guard --
+    content = _strip_control_chars(content)
+    if _check_injection(content):
+        return _bad_request("rejected")
+    content = content[:_MSG_MAX_LEN]
     state = _state()
     state.messages.append({"content": content, "encountered": False})
     state.save()
@@ -173,8 +215,11 @@ async def reply_postcard(request: Request) -> JSONResponse:
     content = content.strip()
     if not content:
         return JSONResponse({"ok": False, "error": "empty content"}, status_code=400)
-    if len(content) > 1000:
-        return _bad_request("too_long")
+    # -- Injection guard --
+    content = _strip_control_chars(content)
+    if _check_injection(content):
+        return _bad_request("rejected")
+    content = content[:_REPLY_MAX_LEN]
     result = reply_postcard_impl(card_id, content)
     return JSONResponse(result, status_code=200 if result["ok"] else 404)
 

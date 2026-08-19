@@ -72,8 +72,8 @@ def _region_for(biome: str, lat: float, lon: float) -> str:
 
     Priority (same geographic logic as before):
       1. polar   -- |lat| > 60
-      2. africa  -- roughly -35..37 N, -20..55 E
-      3. asia    -- roughly 0..55 N, 60..150 E
+      2. africa  -- roughly -35..32 N, -20..55 E
+      3. asia    -- roughly 35..55 N 26..60 E (Turkey/Levant) + 0..55 N 60..150 E
       4. americas -- roughly -55..70, -170..-30
       5. europe  -- roughly 35..72 N, -15..40 E
       6. natural -- default for land without strong region signal
@@ -84,6 +84,8 @@ def _region_for(biome: str, lat: float, lon: float) -> str:
     if -35 <= lat <= 32 and -20 <= lon <= 55:
         return "africa"
 
+    if 35 <= lat <= 55 and 26 <= lon <= 60:
+        return "asia"
     if 0 <= lat <= 55 and 60 <= lon <= 150:
         return "asia"
 

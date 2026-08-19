@@ -18,6 +18,7 @@ import functools
 import math
 import os
 import random
+import re
 import threading
 from datetime import datetime, timezone
 from typing import Any
@@ -35,6 +36,7 @@ from nowhere import (
     geocode,
     hydrology,
     humanities,
+    journeys,
     knowledge,
     landing,
     life,
@@ -82,6 +84,32 @@ def _serialized_action(func):
         async with _action_lock:
             return await func(*args, **kwargs)
     return wrapped
+
+
+# ── External content sanitization (second defense) ───────────────────
+
+_RE_CODE_BLOCK = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+_RE_INLINE_CODE = re.compile(r"`([^`]{1,200})`")
+_RE_TRIPLE_BACKTICK = re.compile(r"`{1,3}")
+
+
+def _strip_code_markers(text: str) -> str:
+    """Strip backticks and code block markers from external text."""
+    text = _RE_CODE_BLOCK.sub("", text)
+    text = _RE_INLINE_CODE.sub(r"\1", text)
+    text = _RE_TRIPLE_BACKTICK.sub("", text)
+    return text.strip()
+
+
+def _sanitize_external(text: str) -> str:
+    """Second defense: sanitize external human-entered text before rendering.
+
+    - Strip fenced code blocks (```...```)
+    - Strip inline code backticks
+    - Wrap in explicit delimiters so the AI player can distinguish
+      "someone's message" from system narrative
+    """
+    return f"「{_strip_code_markers(text)}」"
 
 
 # ── Bearing mapping ──────────────────────────────────────────────────
@@ -747,6 +775,22 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     """Door body, called under _door_lock."""
     global _state, _rng, _recent_salience_kinds
 
+    # ── 0. Multi-journey: save current before switching ────────────────
+    if _state.pos is not None and not resume and to:
+        # Check if destination matches an existing journey
+        existing = journeys.switch(to)
+        if existing is not None:
+            _state = existing
+            _rng = random.Random(int(os.environ["NOWHERE_SEED"])) if os.environ.get("NOWHERE_SEED") else random.Random()
+            _recent_salience_kinds = set()
+            place = _state.place_name or to
+            return {
+                "text": f"回到了{place}的旅程。上次你在{_state.last_text[:50] if _state.last_text else '走路'}。",
+                "data": {"position": {"lat": _state.pos[0], "lon": _state.pos[1]}, "resumed": True},
+            }
+        # Save current journey before starting new one
+        journeys.save_current(_state)
+
     # ── 1. Locate / restore ────────────────────────────────────────────
     spot: dict | None = None
     restored = False
@@ -1186,6 +1230,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         content = msg["content"] if isinstance(msg, dict) else msg
         if isinstance(msg, dict):
             msg["encountered"] = True
+        content = _strip_code_markers(str(content))
         message_text = describe.render("message", {"content": content}, None, _rng)
 
     # ── 4b. 25% chance: encounter from file ─────────────────────────
@@ -1654,6 +1699,7 @@ async def look_around_impl() -> dict:
         content = msg["content"] if isinstance(msg, dict) else msg
         if isinstance(msg, dict):
             msg["encountered"] = True
+        content = _strip_code_markers(str(content))
         sections.append(f"有人在这里留了句话：「{content}」")
 
     # ── 9. Ending: return to original spot ──────────────────────────
@@ -1889,7 +1935,6 @@ async def walk_to_impl(place: str) -> dict:
     # last_env is always flat format: {elevation, surface, sky, weather, ...}
     last_env = _state.last_env or {}
     last_surface = last_env.get("surface", "")
-    )
     terrain_changes = 0
 
     while steps < max_steps:
@@ -2333,6 +2378,44 @@ def postcards() -> dict:
 async def walk_to(place: str) -> dict:
     """朝一个命名地点走过去(山/河/城/古迹)。探索从此有方向。"""
     return await walk_to_impl(place)
+
+
+@mcp.tool()
+def journeys_list() -> dict:
+    """看看以前的旅程。每段旅程,一个世界。"""
+    js = journeys.list_journeys()
+    if not js:
+        return {"text": "还没有旧旅程。第一次开门才算。", "data": {"journeys": []}}
+    parts = []
+    for j in js:
+        name = j.get("place_name", "?")
+        steps = j.get("steps", 0)
+        last = j.get("last_text", "")[:50]
+        parts.append(f"{name}（走了{steps}步，上次：{last}）")
+    text = f"你有 {len(js)} 段旅程。\n" + "\n".join(parts)
+    return {"text": text, "data": {"journeys": js}}
+
+
+@mcp.tool()
+def switch_journey(name: str) -> dict:
+    """切回一段旧旅程。给地名就行。"""
+    global _state, _rng, _recent_salience_kinds
+    if not name.strip():
+        return {"text": "给个地名。", "data": {"error": "empty_name"}}
+    # Save current before switching
+    if _state.pos is not None:
+        journeys.save_current(_state)
+    new_state = journeys.switch(name)
+    if new_state is None:
+        return {"text": f"找不到「{name}」的旅程。", "data": {"error": "not_found"}}
+    _state = new_state
+    _rng = random.Random(int(os.environ["NOWHERE_SEED"])) if os.environ.get("NOWHERE_SEED") else random.Random()
+    _recent_salience_kinds = set()
+    place = _state.place_name or name
+    return {
+        "text": f"回到了{place}。你站在{_state.last_text[:50] if _state.last_text else '某个地方'}。",
+        "data": {"position": {"lat": _state.pos[0], "lon": _state.pos[1]}},
+    }
 
 
 @mcp.tool()

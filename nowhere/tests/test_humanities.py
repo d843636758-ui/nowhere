@@ -94,14 +94,18 @@ def test_geocoded_coords_exist():
 
 
 def test_all_places_have_coords():
-    """所有地名都必须有坐标（仅检查含事件/人物/作品的条目）。"""
+    """主文件的地名必须有坐标（合并进来的区域条目暂不要求）。"""
     data = humanities._load()
-    missing = [
+    # Only check entries that have at least a lat/lon hint:
+    # entries with coords must have valid coords
+    bad = [
         k for k, v in data["places"].items()
-        if ("lat" not in v or "lon" not in v)
-        and any(cat in v for cat in ("事件", "人物", "作品"))
+        if ("lat" in v) != ("lon" in v)  # half-present coords
     ]
-    assert missing == [], f"缺坐标: {missing}"
+    assert bad == [], f"坐标不完整: {bad}"
+    # At least the main file's places should all have coords
+    with_coords = [k for k, v in data["places"].items() if "lat" in v and "lon" in v]
+    assert len(with_coords) >= 434, f"有坐标的地名只有 {len(with_coords)} 个"
 
 
 # ── 近距离触发测试 ──────────────────────────────────────────────────

@@ -57,10 +57,9 @@ class WorldState:
             return None
         return self.landed_at + timedelta(hours=self.elapsed_hours)
 
-    def save(self) -> None:
-        """Persist journey to disk."""
-        _SAVE_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
+    def to_dict(self) -> dict:
+        """Serialize state to a dict (used by save() and journeys.py)."""
+        return {
             "pos": list(self.pos) if self.pos else None,
             "path": self.path[-50:],  # keep last 50 steps (not entire history)
             "landed_at": self.landed_at.isoformat() if self.landed_at else None,
@@ -86,7 +85,59 @@ class WorldState:
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
         }
-        payload = json.dumps(data, ensure_ascii=False, indent=2)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorldState":
+        """Restore state from a dict (used by load() and journeys.py)."""
+        s = cls()
+        if data.get("pos"):
+            s.pos = tuple(data["pos"])
+        s.path = data.get("path", [])
+        if data.get("landed_at"):
+            s.landed_at = datetime.fromisoformat(data["landed_at"])
+            if s.landed_at.tzinfo is None:
+                s.landed_at = s.landed_at.replace(tzinfo=timezone.utc)
+        s.elapsed_hours = data.get("elapsed_hours", 0.0)
+        s.mode = data.get("mode", "land")
+        for m in data.get("messages", []):
+            s.messages.append(m)
+        s.place_name = data.get("place_name")
+        s.last_text = data.get("last_text", "")
+        s.biome = data.get("biome")
+        s.seen_cards = set(data.get("seen_cards", []))
+        s.seen_humanities = set(data.get("seen_humanities", []))
+        s.souvenir = data.get("souvenir")
+        s.visit_counts = data.get("visit_counts", {})
+        s.last_surface = data.get("last_surface")
+        s.last_elevation = data.get("last_elevation", 0.0)
+        s.steps_since_discovery = data.get("steps_since_discovery", 0)
+        _default_narrative = {
+            "direction": None, "distance_walked": 0,
+            "last_feature": None, "discoveries": [], "mood": "neutral",
+        }
+        loaded_narrative = data.get("narrative", {})
+        if isinstance(loaded_narrative, dict):
+            s.narrative = {**_default_narrative, **loaded_narrative}
+        else:
+            s.narrative = _default_narrative
+        s.recent_scenes = data.get("recent_scenes", [])
+        s.postcards = data.get("postcards", [])
+        s.radio_station = data.get("radio_station")
+        if data.get("radio_pos"):
+            s.radio_pos = tuple(data["radio_pos"])
+        s.last_env = data.get("last_env")
+        if data.get("env_pos"):
+            s.env_pos = tuple(data["env_pos"])
+        if data.get("env_at"):
+            s.env_at = datetime.fromisoformat(data["env_at"])
+            if s.env_at.tzinfo is None:
+                s.env_at = s.env_at.replace(tzinfo=timezone.utc)
+        return s
+
+    def save(self) -> None:
+        """Persist journey to disk (thin wrapper around to_dict)."""
+        _SAVE_DIR.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
         fd, tmp_name = tempfile.mkstemp(prefix="journey-", suffix=".tmp", dir=_SAVE_DIR)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as tmp:
@@ -100,56 +151,12 @@ class WorldState:
 
     @classmethod
     def load(cls) -> "WorldState | None":
-        """Load saved journey from disk, or None if no save exists."""
+        """Load saved journey from disk (thin wrapper around from_dict)."""
         if not _SAVE_FILE.exists():
             return None
         try:
             data = json.loads(_SAVE_FILE.read_text(encoding="utf-8"))
-            s = cls()
-            if data.get("pos"):
-                s.pos = tuple(data["pos"])
-            s.path = data.get("path", [])
-            if data.get("landed_at"):
-                s.landed_at = datetime.fromisoformat(data["landed_at"])
-                if s.landed_at.tzinfo is None:
-                    s.landed_at = s.landed_at.replace(tzinfo=timezone.utc)
-            s.elapsed_hours = data.get("elapsed_hours", 0.0)
-            s.mode = data.get("mode", "land")
-            for m in data.get("messages", []):
-                s.messages.append(m)
-            s.place_name = data.get("place_name")
-            s.last_text = data.get("last_text", "")
-            s.biome = data.get("biome")
-            s.seen_cards = set(data.get("seen_cards", []))
-            s.seen_humanities = set(data.get("seen_humanities", []))
-            s.souvenir = data.get("souvenir")
-            s.visit_counts = data.get("visit_counts", {})
-            s.last_surface = data.get("last_surface")
-            s.last_elevation = data.get("last_elevation", 0.0)
-            s.steps_since_discovery = data.get("steps_since_discovery", 0)
-            _default_narrative = {
-                "direction": None, "distance_walked": 0,
-                "last_feature": None, "discoveries": [], "mood": "neutral",
-            }
-            loaded_narrative = data.get("narrative", {})
-            if isinstance(loaded_narrative, dict):
-                # Merge with defaults to handle incomplete/corrupted saves
-                s.narrative = {**_default_narrative, **loaded_narrative}
-            else:
-                s.narrative = _default_narrative
-            s.recent_scenes = data.get("recent_scenes", [])
-            s.postcards = data.get("postcards", [])
-            s.radio_station = data.get("radio_station")
-            if data.get("radio_pos"):
-                s.radio_pos = tuple(data["radio_pos"])
-            s.last_env = data.get("last_env")
-            if data.get("env_pos"):
-                s.env_pos = tuple(data["env_pos"])
-            if data.get("env_at"):
-                s.env_at = datetime.fromisoformat(data["env_at"])
-                if s.env_at.tzinfo is None:
-                    s.env_at = s.env_at.replace(tzinfo=timezone.utc)
-            return s
+            return cls.from_dict(data)
         except Exception as exc:
             import logging
             logging.getLogger(__name__).warning("Failed to load journey from %s: %s", _SAVE_FILE, exc)

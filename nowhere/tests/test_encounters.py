@@ -291,3 +291,15 @@ def test_mediterranean_coast_excluded_from_africa():
     """Mediterranean coast at lat>32 (e.g. Tunis 36.8°N) should not be africa."""
     region = encounters._region_for("urban", 36.8, 10.2)
     assert region != "africa"
+
+
+def test_cyprus_maps_to_asia():
+    """Cyprus (35.13°N, 33.38°E) should map to 'asia', not 'africa'."""
+    region = encounters._region_for("urban", 35.13, 33.38)
+    assert region == "asia"
+
+
+def test_andalusia_maps_to_europe():
+    """Andalusia (37.39°N, -5.97°E) should map to 'europe', not 'africa'."""
+    region = encounters._region_for("urban", 37.39, -5.97)
+    assert region == "europe"
