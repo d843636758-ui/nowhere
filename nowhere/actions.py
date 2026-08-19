@@ -48,11 +48,22 @@ class WalkContext:
 
 
 class Action(Protocol):
-    """A walk narrative slot."""
+    """A walk narrative slot.
+
+    Pipeline: should() → resolve() → render()
+    - should(): gate (does this action fire?)
+    - resolve(): side effects (state mutations). Called before render.
+    - render(): produce narrative text. Read-only on state.
+
+    Default resolve() is a no-op — actions that mix state mutation into
+    render() still work. New actions should override resolve() for clean
+    separation.
+    """
 
     name: str
 
     def should(self, ctx: WalkContext) -> bool: ...
+    def resolve(self, ctx: WalkContext) -> None: ...
     def render(self, ctx: WalkContext) -> str | None: ...
 
 
@@ -363,6 +374,28 @@ class WildernessNarrativeAction:
         return "\n".join(parts) if parts else None
 
 
+class RadioQuietAction:
+    """Card 39: designed quiet during radio cooldown (BotW minimalism).
+
+    When radio_steps_since is within cooldown (1-4) but station is still in range,
+    emit a quiet variant instead of complete silence.
+    """
+
+    name = "radio_quiet"
+
+    def should(self, ctx: WalkContext) -> bool:
+        station = ctx.env.get("radio")
+        return station is not None and 1 <= ctx.state.radio_steps_since < 5
+
+    def resolve(self, ctx: WalkContext) -> None:
+        pass  # no side effects
+
+    def render(self, ctx: WalkContext) -> str | None:
+        from nowhere.describe import _RADIO_QUIET_VARIANTS
+
+        return ctx.rng.choice(_RADIO_QUIET_VARIANTS)
+
+
 class LocalSceneAction:
     """Local-first scene: 城市特有 > 通用 biome."""
 
@@ -576,6 +609,7 @@ class CotravelerAction:
 ACTIONS: list[Action] = [
     WildernessNarrativeAction(),  # 荒深档叙事 (gated by is_deep_wilderness)
     LocalSceneAction(),           # 城市特有 > 通用 biome
+    RadioQuietAction(),           # Card 39: 冷却期设计过的安静
     RhythmAction(),               # 节日/纪念日 (highest priority)
     TimeaxisAction(),             # 时间轴
     HumanitiesAction(),           # 人文卡

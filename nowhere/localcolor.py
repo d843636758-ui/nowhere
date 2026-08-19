@@ -35,10 +35,6 @@ def _load() -> list[_cards.Card]:
 
     _lc_cards = _cards.load_localcolor(_DATA_DIR)
 
-    # Count unique places
-    places = {c.conditions.get("place") for c in _lc_cards}
-    print(f"[localcolor] {len(_lc_cards)} cards from {len(places)} places", flush=True)
-
     return _lc_cards
 
 

@@ -1192,11 +1192,6 @@
         "seasonal": true
       }
     },
-    "南极磷虾": {
-      "layers": {
-        "localcolor": true
-      }
-    },
     "南美潘帕斯草原": {
       "layers": {
         "seasonal": true
@@ -2039,11 +2034,6 @@
         "knowledge": true,
         "films": 1,
         "art": 4
-      }
-    },
-    "墨西哥湾流": {
-      "layers": {
-        "localcolor": true
       }
     },
     "壶口瀑布": {
@@ -4444,11 +4434,6 @@
         "localcolor": true
       }
     },
-    "深海热泉": {
-      "layers": {
-        "localcolor": true
-      }
-    },
     "清迈": {
       "lat": 18.7883,
       "lon": 98.9853,
@@ -4675,11 +4660,6 @@
         },
         "knowledge": true,
         "souvenirs": true
-      }
-    },
-    "珊瑚礁": {
-      "layers": {
-        "localcolor": true
       }
     },
     "珍珠港": {
@@ -7079,12 +7059,6 @@
         "scene": [
           "world_enhanced"
         ]
-      }
-    },
-    "黑潮": {
-      "layers": {
-        "localcolor": true,
-        "knowledge": true
       }
     }
   },

@@ -148,6 +148,21 @@ def save_seen_humanities(keys: set[str]) -> None:
     _dump("seen_humanities.json", {"keys": sorted(keys)})
 
 
+# ── Card 16: revealed places (global, across journeys) ─────────────
+
+def revealed_places() -> set[str]:
+    """Load the global set of places that have been revealed from blind mode."""
+    data = _load("revealed_places.json")
+    return set(data.get("places", []))
+
+
+def save_revealed_place(place: str) -> None:
+    """Record a place as revealed from blind mode."""
+    places = revealed_places()
+    places.add(place)
+    _dump("revealed_places.json", {"places": sorted(places)})
+
+
 # ── 明信片落盘: 文件是真相,谁寄的网页都看得见 ─────────────────────
 
 _POSTCARDS_CAP = 100

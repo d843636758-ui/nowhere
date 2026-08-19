@@ -46,6 +46,7 @@ class WorldState:
         self.steps_since_discovery: int = 0  # counter for pacing discoveries
         self.radio_steps_since: int = 999  # steps since last radio mention (start high so first walk sees radio)
         self.walk_step_counter: int = 0  # total walk steps for rhythm gating
+        self.steps_since_content: int = 0  # Card 40: consecutive steps with zero content
         # ── Scene dedup ─────────────────────────────────────────────
         self.recent_scenes: list[str] = []  # last N scene texts to avoid repetition
         self.recent_touch_sentences: list[str] = []  # last N touch/smell sentences to avoid repetition
@@ -127,6 +128,7 @@ class WorldState:
             "steps_since_discovery": self.steps_since_discovery,
             "radio_steps_since": self.radio_steps_since,
             "walk_step_counter": self.walk_step_counter,
+            "steps_since_content": self.steps_since_content,
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
             "recent_touch_sentences": self.recent_touch_sentences[-10:],  # keep last 10
@@ -186,6 +188,7 @@ class WorldState:
         s.steps_since_discovery = data.get("steps_since_discovery", 0)
         s.radio_steps_since = data.get("radio_steps_since", 999)
         s.walk_step_counter = data.get("walk_step_counter", 0)
+        s.steps_since_content = data.get("steps_since_content", 0)
         _default_narrative = {
             "direction": None, "distance_walked": 0,
             "last_feature": None, "discoveries": [], "mood": "neutral",

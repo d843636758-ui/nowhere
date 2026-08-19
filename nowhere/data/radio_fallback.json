@@ -24,7 +24,8 @@
     "homepage": "https://worldwidefm.net",
     "country": "GB",
     "lat": 51.5074,
-    "lon": -0.1278
+    "lon": -0.1278,
+    "dead": true
   },
   {
     "name": "BBC World Service",
@@ -42,7 +43,8 @@
     "homepage": "https://jazzfm.com",
     "country": "GB",
     "lat": 51.5074,
-    "lon": -0.1278
+    "lon": -0.1278,
+    "dead": true
   },
   {
     "name": "Deutschlandfunk",
@@ -204,7 +206,8 @@
     "homepage": "https://fbc.com.fj",
     "country": "FJ",
     "lat": -18.1416,
-    "lon": 178.4419
+    "lon": 178.4419,
+    "dead": true
   },
   {
     "name": "KBS Classic FM",
@@ -303,7 +306,8 @@
     "homepage": "https://sabc.co.za",
     "country": "ZA",
     "lat": -26.2041,
-    "lon": 28.0473
+    "lon": 28.0473,
+    "dead": true
   },
   {
     "name": "CRTV Radio",
@@ -312,7 +316,8 @@
     "homepage": "https://crtv.cm",
     "country": "CM",
     "lat": 3.848,
-    "lon": 11.5021
+    "lon": 11.5021,
+    "dead": true
   },
   {
     "name": "All India Radio",
@@ -474,7 +479,8 @@
     "homepage": "https://www.powerfm.com.tr",
     "country": "TR",
     "lat": 41.01,
-    "lon": 28.98
+    "lon": 28.98,
+    "dead": true
   },
   {
     "name": "Metro FM",
@@ -483,7 +489,8 @@
     "homepage": "https://www.metrofm.com.tr",
     "country": "TR",
     "lat": 41.01,
-    "lon": 28.98
+    "lon": 28.98,
+    "dead": true
   },
   {
     "name": "ERT Proto",
@@ -510,7 +517,8 @@
     "homepage": "https://www.ert.gr",
     "country": "GR",
     "lat": 37.98,
-    "lon": 23.73
+    "lon": 23.73,
+    "dead": true
   },
   {
     "name": "Ukrainian Radio 1",
@@ -546,7 +554,8 @@
     "homepage": "https://rcnradio.com",
     "country": "CO",
     "lat": 4.7,
-    "lon": -74.1
+    "lon": -74.1,
+    "dead": true
   },
   {
     "name": "Radio Programas del Peru",
@@ -582,7 +591,8 @@
     "homepage": "https://radiomitre.com",
     "country": "AR",
     "lat": -34.6037,
-    "lon": -58.3816
+    "lon": -58.3816,
+    "dead": true
   },
   {
     "name": "Continental",
@@ -591,7 +601,8 @@
     "homepage": "https://www.continental.com.ar",
     "country": "AR",
     "lat": -34.6037,
-    "lon": -58.3816
+    "lon": -58.3816,
+    "dead": true
   },
   {
     "name": "CBN",
@@ -627,7 +638,8 @@
     "homepage": "https://radioformula.com.mx",
     "country": "MX",
     "lat": 19.4,
-    "lon": -99.1
+    "lon": -99.1,
+    "dead": true
   },
   {
     "name": "Nile FM",
@@ -636,7 +648,8 @@
     "homepage": "https://nilefm.com",
     "country": "EG",
     "lat": 30.0,
-    "lon": 31.2
+    "lon": 31.2,
+    "dead": true
   },
   {
     "name": "Nogoum FM",
@@ -645,7 +658,8 @@
     "homepage": "https://nogoumfm.net",
     "country": "EG",
     "lat": 30.0,
-    "lon": 31.2
+    "lon": 31.2,
+    "dead": true
   },
   {
     "name": "Radio Mars",
@@ -654,7 +668,8 @@
     "homepage": "https://www.radiomars.ma",
     "country": "MA",
     "lat": 34.0,
-    "lon": -6.8
+    "lon": -6.8,
+    "dead": true
   },
   {
     "name": "SNRT",
@@ -663,7 +678,8 @@
     "homepage": "https://www.snrt.ma",
     "country": "MA",
     "lat": 34.0,
-    "lon": -6.8
+    "lon": -6.8,
+    "dead": true
   },
   {
     "name": "Wazobia FM",
@@ -897,7 +913,8 @@
     "homepage": "https://dzrh.com.ph",
     "country": "PH",
     "lat": 14.6,
-    "lon": 121.0
+    "lon": 121.0,
+    "dead": true
   },
   {
     "name": "Radio Nacional Bolivia",

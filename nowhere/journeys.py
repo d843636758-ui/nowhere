@@ -192,13 +192,26 @@ def get_journey_meta(slug_or_place: str) -> dict | None:
 
 
 def _load_journey(slug: str, index: dict) -> WorldState | None:
-    """Load a journey file and set it as active."""
+    """Load a journey file and set it as active.
+
+    Validates that the loaded state's place_name matches the index entry
+    to prevent cross-contamination (e.g. file overwritten by a different journey).
+    """
     path = _journey_path(slug)
     if not path.exists():
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
         state = WorldState.from_dict(data)
+        # Validate: loaded state's place must match index entry
+        expected_place = None
+        for j in index.get("journeys", []):
+            if j["slug"] == slug:
+                expected_place = j.get("place_name", "")
+                break
+        if expected_place and state.place_name:
+            if _slug(state.place_name) != _slug(expected_place):
+                return None  # cross-contamination detected
         index["active"] = slug
         _save_index(index)
         return state

@@ -88,10 +88,28 @@ _SURFACE_TO_BIOME: dict[str, str] = {
 
 # ── seasonal files (place+season specific descriptions) ──────────────
 _SEASONAL_CACHE: dict[tuple[str, str], list[str]] | None = None
+_SEASONAL_BIOME_CACHES: dict[str, dict[tuple[str, str], list[str]]] = {}
 
 _SEASON_EN_TO_ZH: dict[str, str] = {
     "spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬",
 }
+
+_SEASONAL_PATTERN = re.compile(r"\[([^|]+)\|([^\]]+)\]\s*(.+)")
+
+
+def _parse_seasonal_file(fp: pathlib.Path) -> dict[tuple[str, str], list[str]]:
+    """Parse a seasonal file into {(place, season_zh): [descriptions]}."""
+    result: dict[tuple[str, str], list[str]] = {}
+    for line in fp.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m = _SEASONAL_PATTERN.match(line)
+        if m:
+            place, season, desc = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
+            key = (place, season)
+            result.setdefault(key, []).append(desc)
+    return result
 
 
 def _load_seasonal() -> dict[tuple[str, str], list[str]]:
@@ -103,36 +121,31 @@ def _load_seasonal() -> dict[tuple[str, str], list[str]]:
     if _SEASONAL_CACHE is not None:
         return _SEASONAL_CACHE
 
-    import re
     _SEASONAL_CACHE = {}
-    pattern = re.compile(r"\[([^|]+)\|([^\]]+)\]\s*(.+)")
-
     seasonal_fp = _SCENE_DIR / "seasonal.txt"
-    if not seasonal_fp.exists():
+    if seasonal_fp.exists():
+        _SEASONAL_CACHE.update(_parse_seasonal_file(seasonal_fp))
+    else:
         # Fallback: try old glob pattern
         for fp in _SCENE_DIR.glob("seasonal_*.txt"):
-            for line in fp.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                m = pattern.match(line)
-                if m:
-                    place, season, desc = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-                    key = (place, season)
-                    _SEASONAL_CACHE.setdefault(key, []).append(desc)
-        return _SEASONAL_CACHE
-
-    for line in seasonal_fp.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        m = pattern.match(line)
-        if m:
-            place, season, desc = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
-            key = (place, season)
-            _SEASONAL_CACHE.setdefault(key, []).append(desc)
+            _SEASONAL_CACHE.update(_parse_seasonal_file(fp))
 
     return _SEASONAL_CACHE
+
+
+def _load_seasonal_biome(biome: str) -> dict[tuple[str, str], list[str]]:
+    """Load biome-specific seasonal data from seasonal_{biome}.txt.
+
+    These are coast/mountain/etc. entries built at build time,
+    filtered by biome so inland cities never see coast sentences.
+    """
+    if biome not in _SEASONAL_BIOME_CACHES:
+        fp = _SCENE_DIR / f"seasonal_{biome}.txt"
+        if fp.exists():
+            _SEASONAL_BIOME_CACHES[biome] = _parse_seasonal_file(fp)
+        else:
+            _SEASONAL_BIOME_CACHES[biome] = {}
+    return _SEASONAL_BIOME_CACHES[biome]
 
 
 # Biome-to-seasonal-place mapping for biome-based seasonal entries
@@ -480,60 +493,109 @@ _ARRIVE_VARIANTS: list[str] = [
     "双脚触到{place}的地面。{时段},一切刚刚开始。",
     "门在身后合上。{place},{时段}。",
     "到了。{place},{时段}的光落在你脚面上。",
+    "鞋底踩上{place}的土地。{时段},空气换了味道。",
+    "门开了,{place}在眼前。{时段},风从哪个方向来你还不知道。",
+    "落地。{place},{时段}。脚下的地跟你出发时不一样。",
+    "跨过那道门,{place}。{时段}的光落在手背上。",
 ]
 
 _WEATHER_ABS_VARIANTS: list[str] = [
-    "天{text}着。{temp_c} 度,{feels_clause}风 {wind_ms} 米每秒{wind_tail}。",
-    "{text}。{temp_c} 度,{feels_clause}风 {wind_ms} 米每秒{wind_tail}。",
-    "此刻{text},{temp_c} 度。{feels_clause}风一阵一阵,{wind_ms} 米每秒{wind_tail}。",
+    "天{text}着。{temp_c} 度,{humidity_clause}{wind_clause}。",
+    "{text}。{temp_c} 度,{humidity_clause}{wind_clause}。",
+    "此刻{text},{temp_c} 度。{humidity_clause}{wind_clause}。",
+    "{temp_c} 度,{text}。{humidity_clause}{wind_clause},贴着地面走。",
+    "天{text}。{humidity_clause}{temp_c} 度,{wind_clause},吹得衣角贴着腿。",
+    "{text},{temp_c} 度。{wind_clause},{humidity_clause}鼻尖先知道。",
+    "{temp_c} 度,{wind_clause}。{text},{humidity_clause}皮肤上起了一层。",
+    "天{text}着,{temp_c} 度。{humidity_clause}{wind_clause},把远处的声音都吹散了。",
 ]
 
 _WEATHER_RAIN_VARIANTS: list[str] = [
-    "雨正下。{temp_c} 度,风 {wind_ms} 米每秒。雨声把别的声音都盖住了。",
-    "在下雨。{temp_c} 度,雨点砸在{surface_hint}上。风 {wind_ms} 米每秒。",
-    "雨没有停的意思。{temp_c} 度,风 {wind_ms} 米每秒,世界只剩雨声。",
+    "雨正下。{temp_c} 度,{wind_clause}。雨声把别的声音都盖住了。",
+    "在下雨。{temp_c} 度,雨点砸在{surface_hint}上。{wind_clause}。",
+    "雨没有停的意思。{temp_c} 度,{wind_clause},世界只剩雨声。",
+    "{temp_c} 度,雨打在脸上。{wind_clause},眼睛睁不开。",
+    "雨丝斜着走,{temp_c} 度。{wind_clause},衣服贴在身上,重了。",
+    "下雨。{temp_c} 度,{wind_clause}。鞋里灌了水,每一步都咕叽响。",
+    "{temp_c} 度,雨落在{surface_hint}上,溅起一层白雾。{wind_clause}。",
+    "雨一直下,{temp_c} 度。{wind_clause}。头顶的帽檐滴着水,一串一串。",
 ]
 
 _WEATHER_SNOW_VARIANTS: list[str] = [
     "雪在下。{temp_c} 度。雪把声音都吃掉了。",
-    "下着雪。{temp_c} 度,风 {wind_ms} 米每秒,雪斜着走。",
+    "下着雪。{temp_c} 度,{wind_clause},雪斜着走。",
     "雪。{temp_c} 度,世界只剩白,和落雪的声音。",
+    "{temp_c} 度,雪花落在睫毛上。{wind_clause},每一片都不一样。",
+    "雪片大朵大朵地落,{temp_c} 度。{wind_clause},脚印刚踩出来就被填平。",
+    "下雪。{temp_c} 度,{wind_clause}。呼出的气在眼前散成白雾。",
+    "{temp_c} 度,雪积了一层。{wind_clause},树枝被压弯了。",
+    "雪没有要停的意思。{temp_c} 度,{wind_clause}。远处的路被雪盖住了,看不出哪里是路。",
 ]
 
 _WEATHER_STORM_VARIANTS: list[str] = [
-    "雷在响。{temp_c} 度,风 {wind_ms} 米每秒,空气里有铁味。",
-    "雷暴。{temp_c} 度,闪电把天撕开一道。风 {wind_ms} 米每秒。",
-    "打雷。{temp_c} 度,雨砸下来,云压低了。风 {wind_ms} 米每秒。",
+    "雷在响。{temp_c} 度,{wind_clause},空气里有铁味。",
+    "雷暴。{temp_c} 度,闪电把天撕开一道。{wind_clause}。",
+    "打雷。{temp_c} 度,雨砸下来,云压低了。{wind_clause}。",
+    "{temp_c} 度,雷从东边滚过来。{wind_clause},雨横着飞。",
+    "闪电劈下来,{temp_c} 度。{wind_clause},把树吹得往一边倒。",
+    "雷声在头顶炸开。{temp_c} 度,{wind_clause},雨大得看不见路。",
+    "{temp_c} 度,暴风雨。{wind_clause},雨水从领口灌进去。",
+    "雷暴来了。{temp_c} 度,{wind_clause}。闪电照出雨帘的形状,然后又黑了。",
 ]
 
 _WEATHER_DELTA_VARIANTS: list[str] = [
-    "{text}。{delta_desc}。现在 {temp_c} 度,风 {wind_ms} 米每秒。",
-    "{delta_desc}。{text},{temp_c} 度,风 {wind_ms} 米每秒。",
-    "天变了。{delta_desc}。此刻{text},{temp_c} 度,风 {wind_ms} 米每秒。",
+    "{text}。{delta_desc}。现在 {temp_c} 度,{wind_clause}。",
+    "{delta_desc}。{text},{temp_c} 度,{wind_clause}。",
+    "天变了。{delta_desc}。此刻{text},{temp_c} 度,{wind_clause}。",
+    "{delta_desc},{text}。{temp_c} 度,{wind_clause}。皮肤还没来得及适应。",
+    "刚才不是这样。{delta_desc},{text}。{temp_c} 度,{wind_clause}。",
+    "{delta_desc}。{text},{temp_c} 度。{wind_clause},跟刚才不一样了。",
+    "天翻了脸。{delta_desc}。{text},{temp_c} 度,{wind_clause}。",
+    "{text}。{delta_desc}。{temp_c} 度,{wind_clause}。身体比意识先反应过来。",
 ]
 
 _TERRAIN_VARIANTS: list[str] = [
     "脚下是{surface_desc}{slope_clause}。{elev_clause}。",
     "{surface_desc}{slope_clause},就在脚下。{elev_clause}。",
     "脚下的地是{surface_desc}{slope_clause}。{elev_clause}。",
+    "地是{surface_desc}{slope_clause},走起来费力气。{elev_clause}。",
+    "每一步踩的都是{surface_desc}{slope_clause}。{elev_clause}。",
+    "{surface_desc}{slope_clause},脚底能感觉到地的脾气。{elev_clause}。",
+    "坡在{surface_desc}上,{slope_clause}。{elev_clause}。",
+    "脚下的{surface_desc}{slope_clause},走一步算一步。{elev_clause}。",
 ]
 
 _TERRAIN_SCREE_VARIANTS: list[str] = [
     "脚下是{surface_desc}堆的坡,松的。每一步踩下去,都先滑半步,才吃住劲。{elev_clause}。",
     "{surface_desc},松的。坡 {slope_deg} 度,每往上一步,都要付一点代价。{elev_clause}。",
     "坡是{surface_desc}堆出来的,松的,{slope_deg} 度。走一步,滑半步。{elev_clause}。",
+    "{surface_desc}在脚下滚,{slope_deg} 度的坡。脚踝扭了一下,你站住了。{elev_clause}。",
+    "碎石坡,{slope_deg} 度。{surface_desc}踩一脚滑一脚,登山杖戳进去才稳住。{elev_clause}。",
+    "坡上全是{surface_desc},松的。{slope_deg} 度,每一步都要找下脚的地方。{elev_clause}。",
+    "{surface_desc},{slope_deg} 度。石头在脚底下响,你听得见自己在滑。{elev_clause}。",
+    "往上走,{surface_desc}堆的坡,{slope_deg} 度。脚下的石块一块一块往下溜。{elev_clause}。",
 ]
 
 _TERRAIN_FLAT_VARIANTS: list[str] = [
     "脚下是{surface_desc},平的,走起来不费力气。{elev_clause}。",
     "地是{surface_desc},平的。{elev_clause}。",
     "{surface_desc}铺开去,远处看不见头。{elev_clause}。",
+    "{surface_desc}一路平着走,脚底不用跟地较劲。{elev_clause}。",
+    "平的,{surface_desc}。走着走着,容易忘了脚底下。{elev_clause}。",
+    "{surface_desc},没有坡。风从远处过来,没有遮挡。{elev_clause}。",
+    "脚下的{surface_desc}平得像被人整过。{elev_clause}。",
+    "{surface_desc}平展展的,走到哪都一样。{elev_clause}。",
 ]
 
 _TERRAIN_FLAT_GRASS_VARIANTS: list[str] = [
     "{surface_desc},一马平川。{elev_clause}。",
     "草地平展展的,风一吹像水面。{elev_clause}。",
     "{surface_desc}延伸到天际线。{elev_clause}。",
+    "{surface_desc},没有坡。草浪一浪接一浪,从脚下滚到远处。{elev_clause}。",
+    "平的,{surface_desc}。风过来了,草全部朝一个方向弯。{elev_clause}。",
+    "{surface_desc}铺到天边,中间什么都没有。{elev_clause}。",
+    "脚踩在{surface_desc}上,软的,比硬地省力气。{elev_clause}。",
+    "{surface_desc},平的。远处有草籽被风吹起来,像一层薄烟。{elev_clause}。",
 ]
 
 # 裸地/沙地用这些
@@ -541,75 +603,148 @@ _TERRAIN_FLAT_BARE_VARIANTS: list[str] = [
     "{surface_desc}一眼望不到头,平的。{elev_clause}。",
     "平的,但脚下的{surface_desc}每一块都不一样。{elev_clause}。",
     "地是{surface_desc},平的,风把什么都吹走了。{elev_clause}。",
+    "{surface_desc},平的。脚踩上去,地裂了一道缝。{elev_clause}。",
+    "平的,{surface_desc}。风把细沙吹过来,在脚边打转。{elev_clause}。",
+    "{surface_desc}铺开去,没有坡,没有遮挡。{elev_clause}。",
+    "脚下是{surface_desc},平的。走在上面,脚步声是空的。{elev_clause}。",
+    "{surface_desc},一眼看过去全是同一种颜色。{elev_clause}。",
 ]
 
 _TERRAIN_FLAT_ROCK_VARIANTS: list[str] = [
     "{surface_desc}延伸到远处,平的。{elev_clause}。",
     "碎石平铺,没有坡。{elev_clause}。",
     "岩石平着铺开,风在上面走。{elev_clause}。",
+    "{surface_desc},平的。石头的纹路像被人画上去的。{elev_clause}。",
+    "平的,{surface_desc}。踩上去脚底是硬的,一步一声响。{elev_clause}。",
+    "{surface_desc}平铺,远处有一块大石头歪在那里。{elev_clause}。",
+    "脚下是{surface_desc},没有坡。风从石头缝里钻出来。{elev_clause}。",
+    "{surface_desc},平的。石头被风磨得发亮,走上去不滑。{elev_clause}。",
 ]
 
 _TERRAIN_FLAT_URBAN_VARIANTS: list[str] = [
     "硬化路面延伸到远处,平的。{elev_clause}。",
     "马路平的,车在跑。{elev_clause}。",
     "人行道的路沿石被磨得发亮。{elev_clause}。",
+    "{surface_desc},平的。脚踩在路面上,声音是实心的。{elev_clause}。",
+    "平的,{surface_desc}。路边的梧桐树投下一片影子。{elev_clause}。",
+    "{surface_desc}一直铺到看不见的地方。平的。{elev_clause}。",
+    "马路平展展的,{surface_desc}。红绿灯在远处闪。{elev_clause}。",
+    "脚下是{surface_desc},没有坡。路面的砖缝里长着草。{elev_clause}。",
 ]
 
 _TERRAIN_FLAT_WATER_VARIANTS: list[str] = [
     "水面平得像镜子。{elev_clause}。",
     "{surface_desc},平的,没有一丝褶皱。{elev_clause}。",
     "水平如镜。{elev_clause}。",
+    "{surface_desc},平的。远处有鸟贴着水面飞过。{elev_clause}。",
+    "水是平的,{surface_desc}。风吹过来,起了一层细纹。{elev_clause}。",
+    "{surface_desc},没有波。你踩进去,水只到脚踝。{elev_clause}。",
+    "平的,{surface_desc}。水面倒着天,走过去影子就碎了。{elev_clause}。",
+    "{surface_desc}铺开去,平的。水面上浮着一片叶子,不动。{elev_clause}。",
 ]
 
 _TERRAIN_HIGH_FLAT_VARIANTS: list[str] = [
     "地势平坦,但海拔 {elevation} 米,每一步都喘。脚下是{surface_desc}{delta_clause}。",
     "{surface_desc},平的。可 {elevation} 米的海拔压着胸口,走不快{delta_clause}。",
     "地是{surface_desc},没有坡。但 {elevation} 米的空气稀薄,喘得厉害{delta_clause}。",
+    "{elevation} 米,{surface_desc}是平的。呼吸比脚先累{delta_clause}。",
+    "平的,{surface_desc}。可 {elevation} 米的空气薄,走三步要停一步{delta_clause}。",
+    "脚下是{surface_desc},没有坡。{elevation} 米的海拔,心跳比平时快{delta_clause}。",
+    "{surface_desc}平展展的,但 {elevation} 米的空气不够用。走着走着就喘{delta_clause}。",
+    "地平,{surface_desc}。{elevation} 米,头有点晕,风从远处过来,没有东西挡{delta_clause}。",
 ]
 
 _SKY_NIGHT_VARIANTS: list[str] = [
     "天黑了。{moon_str}{planet_str}{milky_str}{aurora_str}",
     "夜沉下来。{moon_str}{planet_str}{milky_str}{aurora_str}",
     "头顶是夜。{moon_str}{planet_str}{milky_str}{aurora_str}",
+    "夜铺开了。{moon_str}{planet_str}{milky_str}{aurora_str}",
+    "天一黑,{moon_str}{planet_str}{milky_str}{aurora_str}",
+    "夜空干净。{moon_str}{planet_str}{milky_str}{aurora_str}",
+    "黑下来的天,{moon_str}{planet_str}{milky_str}{aurora_str}",
+    "抬头是夜。{moon_str}{planet_str}{milky_str}{aurora_str}",
 ]
 
 # ── Card 14: Night navigation variants ───────────────────────────────
 _NIGHT_NAV_POLAR_LOW: list[str] = [     # lat 10-30
     "北极星贴着地平线,低得快要碰到屋顶。",
+    "北极星矮矮的,挂在北边的天际线上。",
+    "你找北极星,它在北边低低的地方,像是蹲着。",
+    "北边那颗星贴着地平线,你得找个没遮挡的地方才看得见。",
+    "北极星在北边低处,仰着头也嫌它矮。",
+    "北斗的勺柄弯过去,指着一颗快贴地的星——北极星。",
+    "这么低的纬度,北极星几乎在地平线上走。",
+    "你往北看,北极星像一盏快灭的灯,挂在天边。",
 ]
 _NIGHT_NAV_POLAR_MID: list[str] = [     # lat 30-50
     "北极星在北边挂着,不高不低,认路的老伙计。",
+    "北极星在北天,仰角跟这片纬度一样。",
+    "北边那颗不动的星,你已经认识它好些日子了。",
+    "北极星挂在半空,不升不降。",
+    "北斗七星转了半圈,勺口还是指着北极星。",
+    "你往北看,北极星在那,跟你上次看一样高。",
+    "北极星不高不低,正好是认路的角度。",
+    "夜空里找到北极星,就知道北在哪。今晚它稳稳的。",
 ]
 _NIGHT_NAV_POLAR_HIGH: list[str] = [    # lat 50-66
     "北极星几乎在头顶偏北一点,你仰着脖子看。",
     "银河斜斜地过头顶,你顺着它看北。",
+    "北极星高高的,在头顶偏北的地方。",
+    "这么高的纬度,北极星快到天顶了。",
+    "你仰头看,北极星在头顶偏北一点,够不到。",
+    "北极星挂得高,几乎就在头顶。",
+    "银河从东到西横过天顶,北极星在它的北边。",
+    "北边那颗星今晚特别高,你得把头仰到最大才看得见。",
 ]
 _NIGHT_NAV_POLAR_UNIVERSAL: list[str] = [  # any north lat > 10
     "北边那颗不动的星,今晚格外稳。",
     "星星密得像撒了一把盐,北极星是那颗不动的。",
     "夜空干净,北极星在北边挂着,你认得它。",
     "北斗的勺口指向北极星,你顺着看了一眼。",
+    "你找到北极星了。在北边,比别的星都安静。",
+    "所有的星都在转,只有北极星不动。你盯着它看了一会儿。",
+    "北斗七星在头顶,勺口延长出去,就是北极星。",
+    "今晚的北极星比昨晚亮一点。你不确定,但你愿意相信。",
 ]
 _NIGHT_NAV_SOUTHERN: list[str] = [      # lat < -10
     "南十字出来了,长臂指着南天极。",
     "那颗不动的星看不见,但南十字在,南就有了。",
     "四颗星钉成一个十字,你仰头数了两遍。",
     "天顶的星转着圈,南十字是那个锚。",
+    "南十字挂在南天,长的一头指向南方。",
+    "你认出了南十字,四颗星排成十字架的形状。",
+    "南半球的夜空里,南十字是最容易认的星座。",
+    "银河从南十字旁边经过,你顺着它找到南。",
 ]
 _NIGHT_NAV_FULL_MOON: list[str] = [     # moon_phase > 0.8
     "满月,影子清楚,不用看脚下。",
     "月光把路照成灰白色,你走得比白天还稳。",
     "这么大的月亮,城里的灯都输了。",
+    "满月挂在天上,地上连石头的影子都看得见。",
+    "月亮亮得刺眼,星星都躲了。",
+    "月光把你的影子拉在地上,长长的,跟在你后面走。",
+    "满月。夜里走路跟白天一样,不用打手电。",
+    "月亮把远处的山照出轮廓来,你看见了路。",
 ]
 _NIGHT_NAV_NO_MOON: list[str] = [       # moon_phase < 0.2
     "没月亮,黑得慢,你听声音走路。",
     "脚踩在不知道什么东西上,软的,你没低头看。",
     "这么黑,星反而多了,一颗一颗数得过来。",
+    "没有月亮,路看不见,你用脚来摸索。",
+    "夜黑得厚实,你伸出手看不见手指。",
+    "没月亮的夜,星星亮了不少,但照不亮脚下的路。",
+    "黑。你听见自己的脚步声和远处不知道什么动物的声音。",
+    "天上没有月亮,你靠星光辨认方向。",
 ]
 _NIGHT_NAV_POLAR_NIGHT: list[str] = [   # |lat|>66 winter months
     "太阳不上来,但雪把光存住了。",
     "极夜,天是深蓝的,不是黑的。",
     "月亮和星换着班,你永远不知道'现在几点'——只好一直走。",
+    "极夜。天没有全黑过,也没有亮过。",
+    "太阳不露面,但天边有一条亮的线,永远在那里。",
+    "极夜里,雪地反着天光。你分不清是黄昏还是黎明。",
+    "已经好多天没见过太阳了。你靠钟表过日子。",
+    "极夜的天是深蓝色的,不是黑的。你已经习惯了。",
 ]
 
 
@@ -672,36 +807,66 @@ _SKY_DAY_VARIANTS: list[str] = [
     "太阳在 {sun_alt} 度,光落下来是直的。",
     "日头挂着,{sun_alt} 度。影子缩在脚边。",
     "白天。太阳 {sun_alt} 度,光从天顶附近砸下来。",
+    "太阳 {sun_alt} 度,影子踩在脚底下。",
+    "{sun_alt} 度的太阳。光把颜色都漂白了。",
+    "日头高,{sun_alt} 度。抬头看天,眼睛睁不开。",
+    "太阳在 {sun_alt} 度,地面的热气往上蒸。",
+    "天亮着,{sun_alt} 度。太阳把影子压成一小块。",
 ]
 
 _SKY_DAY_LOW_VARIANTS: list[str] = [
     "太阳低着,{sun_alt} 度,影子拉得长。",
     "日头斜了,{sun_alt} 度。地上的影子比实物长。",
     "太阳快贴着地平线了,{sun_alt} 度,光是斜着来的。",
+    "太阳 {sun_alt} 度,光斜着打过来,把一切都拉长了。",
+    "日头挂在 {sun_alt} 度,影子从脚底下伸出去好远。",
+    "太阳低,{sun_alt} 度。光是暖的,但已经没有力气了。",
+    "{sun_alt} 度的太阳。地上的影子比人长。",
+    "太阳在 {sun_alt} 度,斜斜地照。空气里有金粉。",
 ]
 
 _WATER_COLD_VARIANTS: list[str] = [
     "海水 {sst} 度。脚踝先麻,然后是针扎。身体比人先记住这片海。",
     "水 {sst} 度。下去的第一秒,呼吸就乱了。",
     "海水 {sst} 度,冷得直接。脚趾先知道,然后是膝盖。",
+    "{sst} 度的水。小腿一进去,肌肉就缩了。",
+    "水 {sst} 度。脚趾一碰到水面,人就往后退了一步。",
+    "海水 {sst} 度,冷得像刀。皮肤发红,牙齿开始打架。",
+    "水 {sst} 度。下去之后,胸口像被人按住了。",
+    "{sst} 度。水贴在皮肤上,像一层冰。你忍住了。",
 ]
 
 _WATER_COOL_VARIANTS: list[str] = [
     "海水 {sst} 度。凉,一下一下贴在皮肤上。",
     "水 {sst} 度,凉意顺着脚踝往上爬。",
     "海水 {sst} 度。凉,但能忍,忍过十秒就是自己的了。",
+    "{sst} 度的水。凉的,但不刺骨。你站住了。",
+    "水 {sst} 度。凉意从脚底往上走,走到腰就停了。",
+    "海水 {sst} 度。凉,皮肤上起了一层鸡皮疙瘩。",
+    "水 {sst} 度。凉的,像夏天傍晚的风。",
+    "{sst} 度。水凉得刚好,不冷不热,泡着舒服。",
 ]
 
 _WATER_WARM_VARIANTS: list[str] = [
     "海水 {sst} 度。温的,像忘了凉下来。",
     "水 {sst} 度,温吞吞的,泡着不想动。",
     "海水 {sst} 度,暖的。海把人接住了。",
+    "{sst} 度的水。暖的,像泡在浴缸里。",
+    "水 {sst} 度。暖的,身体在里面放松了。",
+    "海水 {sst} 度。温的,脚踩进去不想出来。",
+    "{sst} 度。水暖得像被太阳晒过一样。",
+    "水 {sst} 度,暖的。你在水里站着,不想走。",
 ]
 
 _LIFE_VARIANTS: list[str] = [
     "{time_desc},有人在离你 {distance_m} 的地方,遇见过{unit}{common_name}。此刻你不知道它在哪。",
     "{unit}{common_name}。{time_desc},{distance_m}外,有人见过它。它也许还在。",
     "{time_desc},{distance_m}之内,有人遇见过{common_name}。也许它正看着你——这不重要,知道它在,就够了。",
+    "{unit}{common_name}。{distance_m}外。{time_desc}有人见过它,你不知道它现在在哪。",
+    "{time_desc},{distance_m}外有人遇见过{common_name}。它也许在,也许不在。你继续走。",
+    "{unit}{common_name},{distance_m}。{time_desc}留下的痕迹。你知道它在附近。",
+    "{common_name}。{distance_m}之外,{time_desc}有人见过。它还在这里的某处。",
+    "{time_desc},{distance_m}外,{unit}{common_name}被记录过。你路过它的领地。",
 ]
 
 # ── Close-up variants (card 7: short-distance < 0.5km) ──────────────
@@ -711,6 +876,9 @@ _CLOSEUP_VARIANTS: list[str] = [
     "就这几步路,{surface_desc}。细节比远处清楚。",
     "脚边的{surface_desc},颗粒分明。",
     "近处地面是{surface_desc}。蹲下来能看见缝隙里的土。",
+    "{surface_desc}就在脚下。你能看见每一粒的形状。",
+    "低头看,{surface_desc}。脚踩的地方跟旁边不一样。",
+    "{surface_desc},细节全在眼前。风吹过,纹理会变。",
 ]
 
 # Seasonal life encounter variants: (season) → list of templates
@@ -720,24 +888,40 @@ _LIFE_SEASONAL: dict[str, list[str]] = {
         "春天,{common_name}从南方回来了。{dist_str}外,你听见了它的声音。",
         "{unit}{common_name}。{dist_str}外。空气里有花粉的味道。",
         "草地刚返青,{unit}{common_name}在上面走。{dist_str}外。",
+        "春天的{dist_str}外,{unit}{common_name}在找吃的。地上有新长的草。",
+        "{common_name}从冬眠里醒过来了。{dist_str}外,它在活动。",
+        "花开了一片,{unit}{common_name}在花丛里。{dist_str}外。",
+        "春雨过后,{unit}{common_name}出来了。{dist_str}外,地上是湿的。",
     ],
     "summer": [
         "{unit}{common_name}在太阳底下活动。{dist_str}外,空气黏在皮肤上。",
         "热,{unit}{common_name}躲在阴凉里。{dist_str}外。",
         "蝉叫得整个林子都在响,{unit}{common_name}从你面前经过。{dist_str}外。",
         "{common_name}。夏天,{dist_str}外,它比你更适应这种热。",
+        "{dist_str}外,{unit}{common_name}在水边。天热,它也热。",
+        "夏天的傍晚,{unit}{common_name}出来活动了。{dist_str}外。",
+        "太阳底下,{unit}{common_name}的影子小小的。{dist_str}外。",
+        "{common_name}在树荫里不动。{dist_str}外。热得连虫子都安静了。",
     ],
     "autumn": [
         "{unit}{common_name}在忙着什么。秋天,{dist_str}外,空气凉了。",
         "落叶踩上去沙沙响,{unit}{common_name}在远处。{dist_str}。",
         "{common_name}在囤粮食,{dist_str}外。你知道冬天快来了。",
         "一群鸟往南飞,{unit}{common_name}没走。{dist_str}外。",
+        "秋天,{unit}{common_name}比夏天活跃。{dist_str}外,它在准备过冬。",
+        "落叶堆里有{common_name}的痕迹。{dist_str}外,它刚走过。",
+        "{dist_str}外,{unit}{common_name}在忙着什么。秋天的空气凉飕飕的。",
+        "风把叶子吹下来,{unit}{common_name}在树下捡。{dist_str}外。",
     ],
     "winter": [
         "远处有一串脚印,不是人的。你蹲下来看,是{common_name}的。{dist_str}外。",
         "冬天,{unit}{common_name}还在。{dist_str}外。你不知道它怎么过的冬。",
         "雪地上有{common_name}的爪印,新的。{dist_str}外,它刚走过。",
         "{unit}{common_name}。{dist_str}外。冷,但它比你更扛得住。",
+        "冬天的{dist_str}外,{unit}{common_name}在雪地里走。它不怕冷。",
+        "{common_name}的脚印在雪上,一条线,通向远处。{dist_str}外。",
+        "雪地里,{unit}{common_name}的毛色跟白不一样。{dist_str}外。",
+        "冬天,{dist_str}外。{unit}{common_name}还在外面,它的呼吸在空气里成白雾。",
     ],
 }
 
@@ -748,6 +932,11 @@ _ART_VARIANTS: list[str] = [
     "此刻应景的一件：{artist}《{title}》。{intro}。{scene}",
     "有一件作品在等你——{artist}《{title}》。{intro}。{scene}",
     "{artist}《{title}》。{intro}。{scene}",
+    "这里挂着{artist}的《{title}》。{intro}。{scene}",
+    "你面前是{artist}《{title}》。{intro}。{scene}",
+    "{artist}画过这地方吗——《{title}》,{intro}。{scene}",
+    "有一幅画:{artist}《{title}》。{intro}。{scene}",
+    "{artist}《{title}》就在这里。{intro}。{scene}",
 ]
 
 # 艺术介绍的常用词中译(离线小词典,查不到就略过,不硬翻)
@@ -831,12 +1020,34 @@ _RADIO_VARIANTS: list[str] = [
     "附近有电台在播。{name},{genre}。",
     "收音机里有声音。{name},正放着{genre}。",
     "{name} 在播{genre}。有人说话的地方,就不算荒。",
+    "电台的声音从远处来。{name},{genre}。",
+    "你听见了{genre}。{name}在播。",
+    "{name}。{genre}。收音机的声音穿过风传过来。",
+    "有电台在附近。{name},{genre}。声音不大,但你能分辨出来。",
+    "{name}在播{genre}。信号不太稳,有时候会断。",
+]
+
+# Card 39: designed quiet during radio cooldown (BotW minimalism)
+_RADIO_QUIET_VARIANTS: list[str] = [
+    "电台还在,声音小了。",
+    "远处有音乐,听不清是什么。",
+    "收音机的声音被风盖住了。",
+    "电台的信号弱了,像有人在很远的地方说话。",
+    "电台的声音飘过来,忽有忽无。",
+    "收音机还在响,但声音远了。",
+    "电台的频率飘了,只剩下沙沙声。",
+    "音乐还在,但你听不清了。风把声音吹散了。",
 ]
 
 _BLOCKED_VARIANTS: list[str] = [
     "前面是{reason}。走不通,得绕。",
     "{reason}挡在前面。此路不通,换个方向。",
     "路到头了——{reason}。山不让步,人绕。",
+    "{reason}。你站住了,看了看左右。",
+    "走不了了,{reason}。你得找别的路。",
+    "前面是{reason},过不去。你转身。",
+    "{reason}横在前面。路断了。",
+    "路被{reason}堵住了。你退了两步,重新找方向。",
 ]
 
 _MESSAGE_VARIANTS: list[str] = [
@@ -844,6 +1055,10 @@ _MESSAGE_VARIANTS: list[str] = [
     "路上躺着一句留言:「{content}」——不知道是谁,也不知道是什么时候。",
     "前人经过这里,留下一句:「{content}」",
     "你不是第一个到这的人。有人说:「{content}」",
+    "石头上刻着字:「{content}」。你蹲下来看了一会儿。",
+    "地上有留言。「{content}」。字迹被风化了一部分。",
+    "有人在路边留了一句:「{content}」。你不知道他长什么样。",
+    "一块平坦的石头上写着:「{content}」。风吹日晒,字还在。",
 ]
 
 # ── Farewell variants (card 27: peak-end farewell) ──────────────────
@@ -854,12 +1069,20 @@ _FAREWELL_VARIANTS: list[str] = [
     "你停了一秒。风吹过来,带着这里的味道。然后你走了。",
     "最后看了一眼天。{phase_desc}。门开了。",
     "你把这里的空气吸了一口,转身。门在等。",
+    "转身的时候,风从{place}的方向吹过来。你没有回头。",
+    "{place}在身后。门开了,你走进去。",
+    "你在{place}多站了一会儿。然后你转身,门在等。",
 ]
 
 _RETURN_VARIANTS: list[str] = [
     "你离开时还是{old_season}，现在{new_season}了。",
     "上次走的时候{old_season}，回来已经是{new_season}。",
     "{old_season}走的，{new_season}回来的。世界没有等你,但也没走远。",
+    "{old_season}离开,{new_season}回来。地上的东西换了。",
+    "上次是{old_season}。现在{new_season}。你认得这里,但又不太认得。",
+    "{old_season}走的时候你没有回头。{new_season}了,你又站在同一个地方。",
+    "你记得{old_season}离开时的样子。现在是{new_season},不一样了。",
+    "{old_season}到{new_season}。你走了一圈,又回来了。",
 ]
 
 # ── surface descriptions ─────────────────────────────────────────────
@@ -897,6 +1120,16 @@ def _pick(pool: Sequence[str], rng: random.Random) -> str:
     return rng.choice(pool)
 
 
+def _pick_fresh(pool: Sequence[str], rng: random.Random, recent: set[str] | None = None) -> str:
+    """Pick from pool, avoiding recently used strings. Falls back to any if all are recent."""
+    if not recent:
+        return rng.choice(pool)
+    fresh = [t for t in pool if t not in recent]
+    if fresh:
+        return rng.choice(fresh)
+    return rng.choice(pool)
+
+
 def _temp_delta_line(old_temp: float, new_temp: float) -> str:
     diff = round(new_temp - old_temp)
     if diff > 0:
@@ -906,22 +1139,45 @@ def _temp_delta_line(old_temp: float, new_temp: float) -> str:
     return "气温没变"
 
 
-def _wind_delta_line(old_wind: float, new_wind: float) -> str:
+def _wind_delta_line(old_wind: float, new_wind: float, rng: random.Random) -> str:
+    """Card 39: wind delta → sensory text, never raw numbers."""
     diff = round(new_wind - old_wind)
     if abs(diff) < 2:
         return ""
     if diff > 0:
-        return f"风从 {round(old_wind)} 米每秒长到 {round(new_wind)} 米每秒"
-    return f"风从 {round(old_wind)} 米每秒落到 {round(new_wind)} 米每秒"
+        return rng.choice(_WIND_DELTA_UP)
+    return rng.choice(_WIND_DELTA_DOWN)
 
 
 def _feels_clause(feels_c: float, temp_c: float) -> str:
-    """体感差异的物理说法。返回带尾逗号或空串。"""
+    """DEPRECATED: kept for backward compat. Use _humidity_sensory instead."""
     diff = round(feels_c - temp_c)
     if diff > 3:
         return f"湿气把体感往上抬了 {diff} 度,"
     if diff < -3:
         return f"风把体感往下压了 {abs(diff)} 度,"
+    return ""
+
+
+def _wind_sensory(wind_ms: float, rng: random.Random) -> str:
+    """Card 39: wind speed → sensory clause (no trailing punctuation)."""
+    if wind_ms < 1:
+        return rng.choice(_WIND_CALM)
+    if wind_ms < 4:
+        return rng.choice(_WIND_LIGHT)
+    if wind_ms < 8:
+        return rng.choice(_WIND_MODERATE)
+    return rng.choice(_WIND_STRONG)
+
+
+def _humidity_sensory(feels_c: float, temp_c: float, rng: random.Random) -> str:
+    """Card 39: feels_delta → sensory clause (trailing comma or empty).
+    Never outputs the raw delta number."""
+    diff = round(feels_c - temp_c)
+    if diff > 3:
+        return rng.choice(_HUMIDITY_HUMID)
+    if diff < -3:
+        return rng.choice(_HUMIDITY_DRY)
     return ""
 
 
@@ -961,6 +1217,9 @@ def render(
     # Pass recent_touch to terrain handler via module-level variable
     global _RECENT_TOUCH
     _RECENT_TOUCH = recent_touch or set()
+    # Store recent_scenes for dedup across all pools
+    global _RECENT_SCENES
+    _RECENT_SCENES = recent_scenes or []
     return handler(payload, prev, rng)
 
 
@@ -1097,55 +1356,104 @@ def _starts_with_cjk(s: str) -> bool:
 # Walk-specific transition phrases — only for walk sections
 _WALK_TRANSITIONS: list[str] = ["走着走着,", "又走了一段,"]
 
+# ── Card 39: connection word semantic slots ─────────────────────────
+# Pools grouped by semantic slot; compose() avoids reusing the same slot.
+_TRANSITION_SLOTS_WALK: dict[str, list[str]] = {
+    "time": ["紧接着,", "没过多会儿,", "走着走着,"],
+    "juxtapose": ["同时,", "这会儿,", "另一边,"],
+    "causal": ["于是,", "因此,"],
+}
+_TRANSITION_SLOTS_ESTABLISH: dict[str, list[str]] = {
+    "juxtapose": ["同时,", "这会儿,"],
+}
+
+# ── Card 39: wind sensory pools (≥4 per tier, clause-level, no punctuation) ──
+_WIND_CALM: list[str] = [
+    "没有风", "一丝风都没有", "空气纹丝不动", "旗子垂着不动",
+]
+_WIND_LIGHT: list[str] = [
+    "风轻", "微风拂面", "风只够吹动头发", "衣角轻轻动了一下",
+]
+_WIND_MODERATE: list[str] = [
+    "风不小", "衣角被吹起来", "风吹着衣摆", "风把帽子往前推了一下",
+]
+_WIND_STRONG: list[str] = [
+    "风猛", "风压着人走", "站不太稳", "风呼呼地响",
+]
+
+# ── Card 39: humidity sensory pools (≥4 per tier, clause-level, trailing comma) ──
+_HUMIDITY_DRY: list[str] = [
+    "嘴唇有点干,", "空气干得发紧,", "鼻腔里干的,", "皮肤上像有沙子在磨,",
+]
+_HUMIDITY_HUMID: list[str] = [
+    "空气黏在皮肤上,", "汗从毛孔里往外渗,", "空气重得能拧出水,", "呼吸像在吸棉花,",
+]
+
+# ── Card 39: wind delta sensory (for weather transitions) ───────────
+_WIND_DELTA_UP: list[str] = [
+    "风突然大了起来", "风劲了", "风猛了",
+]
+_WIND_DELTA_DOWN: list[str] = [
+    "风小了", "风弱了", "风停了些",
+]
+
 
 def compose(sections: list[str], rng: random.Random, section_type: str = "walk") -> str:
     """把渲染好的段落拼成一份身体报告。段落间给过渡,但不抢戏。
 
-    - 空位占两个, "无过渡"更常见, 减少机械感
-    - 同一条报告内已用过的过渡词不重复
-    - 以"你"开头的动作句只用动作类过渡("同时,"/"走着走着,"),
-      避免"远处,你转身往北走"这种场景词修饰动作的错配
-    - section_type: "walk" 允许走着走着等转移句; "establish" 禁入转移句
+    Card 39 changes:
+    - 连接词概率化: 40% 概率插入,60% 句号硬切; 同段不用同语义槽
+    - 段拍变奏: 密段(20%)三景压一段 / 疏段(20%)一句独立成段 / 常(60%)
+    - 语义槽分组: 时间/并置/因果, compose 内不复用同槽
     """
     sections = [s for s in sections if s and s.strip()]
     if not sections:
         return ""
 
-    all_transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,"]
-    action_transitions = ["", "同时,"]
+    # Select semantic slot pools by section type
     if section_type == "walk":
-        all_transitions = [
-            "", "",
-            "同时,", "头顶上,", "风里,", "远处,", "走着走着,",
-            "这会儿,", "紧接着,", "没过多会儿,",
-        ]
-        action_transitions = [
-            "", "同时,", "走着走着,",
-            "这会儿,", "紧接着,",
-        ]
+        slots = _TRANSITION_SLOTS_WALK
+    else:
+        slots = _TRANSITION_SLOTS_ESTABLISH
 
     parts: list[str] = []
-    used: set[str] = set()
+    used_slots: set[str] = set()
     for i, s in enumerate(sections):
         if i == 0:
             parts.append(s)
             continue
-        # Insert missing period at section boundary:
-        # previous part ends with CJK char and current section starts with CJK char
+        # Insert missing period at section boundary
         if parts and _ends_with_cjk(parts[-1]) and _starts_with_cjk(s):
             parts[-1] += "。"
-        if s.startswith("你"):
-            pool = [t for t in action_transitions if t == "" or t not in used]
-        else:
-            pool = [t for t in all_transitions if t == "" or t not in used]
-        if not pool:
-            pool = [""]
-        t = _pick(pool, rng)
-        if t:
-            used.add(t)
+        # Card 39: 40% chance to insert a transition; 60% = hard cut (句号硬切)
+        t = ""
+        if rng.random() < 0.4:
+            # Pick from an unused semantic slot
+            available = [slot for slot in slots if slot not in used_slots]
+            if available:
+                slot = rng.choice(available)
+                t = rng.choice(slots[slot])
+                used_slots.add(slot)
         parts.append(t + s)
 
-    result = "".join(parts)
+    # Card 39: paragraph rhythm variation (密/疏/常)
+    rhythm_roll = rng.random()
+    if section_type == "walk" and len(parts) >= 3:
+        if rhythm_roll < 0.2:
+            # dense: 三景压一段
+            paragraphs = []
+            for j in range(0, len(parts), 3):
+                paragraphs.append("".join(parts[j:j + 3]))
+            result = "\n\n".join(paragraphs)
+        elif rhythm_roll < 0.4:
+            # sparse: 一句独立成段
+            result = "\n\n".join(parts)
+        else:
+            # normal
+            result = "".join(parts)
+    else:
+        result = "".join(parts)
+
     # Ensure the final text ends with terminal punctuation
     if result and _ends_with_cjk(result):
         result += "。"
@@ -1209,7 +1517,10 @@ def _render_weather(payload: dict, prev: dict | None, rng: random.Random) -> str
     wind_ms = round(payload["wind_ms"])
     text = payload.get("text", "")
     precip = payload.get("precip", "none")
-    feels_clause = _feels_clause(feels_c, payload["temp_c"])
+
+    # Card 39: sensory rendering — wind/humidity clauses, no raw feels_delta
+    wind_clause = _wind_sensory(wind_ms, rng)
+    humidity_clause = _humidity_sensory(feels_c, payload["temp_c"], rng)
 
     # 物理外推: 风速超过步行速度(~1.1m/s)的八倍且有云,云比人快
     cloudy = any(w in text for w in ("云", "阴"))
@@ -1220,32 +1531,30 @@ def _render_weather(payload: dict, prev: dict | None, rng: random.Random) -> str
         old_temp = prev_weather.get("temp_c", payload["temp_c"])
         old_wind = prev_weather.get("wind_ms", payload["wind_ms"])
         delta_desc = _temp_delta_line(old_temp, payload["temp_c"])
-        wind_line = _wind_delta_line(old_wind, payload["wind_ms"])
+        wind_line = _wind_delta_line(old_wind, payload["wind_ms"], rng)
         if wind_line:
             delta_desc += "," + wind_line
         tmpl = _pick(_WEATHER_DELTA_VARIANTS, rng)
-        return tmpl.format(temp_c=temp_c, wind_ms=wind_ms, text=text, delta_desc=delta_desc)
+        return tmpl.format(temp_c=temp_c, wind_clause=wind_clause, text=text, delta_desc=delta_desc) + wind_tail
 
     if precip == "rain":
         tmpl = _pick(_WEATHER_RAIN_VARIANTS, rng)
-        return tmpl.format(temp_c=temp_c, wind_ms=wind_ms, surface_hint="地")
+        return tmpl.format(temp_c=temp_c, wind_clause=wind_clause, surface_hint="地")
     if precip == "snow":
         tmpl = _pick(_WEATHER_SNOW_VARIANTS, rng)
-        return tmpl.format(temp_c=temp_c, wind_ms=wind_ms)
+        return tmpl.format(temp_c=temp_c, wind_clause=wind_clause)
     if precip == "storm":
-        # WMO codes 95/96/99 — lightning, possible hail. Without its own branch
-        # this fell through to the plain "晴" template and lost the storm.
         tmpl = _pick(_WEATHER_STORM_VARIANTS, rng)
-        return tmpl.format(temp_c=temp_c, wind_ms=wind_ms)
+        return tmpl.format(temp_c=temp_c, wind_clause=wind_clause)
 
     tmpl = _pick(_WEATHER_ABS_VARIANTS, rng)
-    return tmpl.format(
+    result = tmpl.format(
         temp_c=temp_c,
-        wind_ms=wind_ms,
         text=text or "晴",
-        feels_clause=feels_clause,
-        wind_tail=wind_tail,
+        humidity_clause=humidity_clause,
+        wind_clause=wind_clause,
     )
+    return result + wind_tail
 
 
 def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str:
@@ -1405,14 +1714,16 @@ def _render_sky(payload: dict, prev: dict | None, rng: random.Random) -> str:
         if not moon_str and not planet_str and not milky_str and not aurora_str:
             moon_str = "无月。星星倒是一颗不少。"
 
-        tmpl = _pick(_SKY_NIGHT_VARIANTS, rng)
+        recent = set(_RECENT_SCENES[-10:]) if _RECENT_SCENES else set()
+        tmpl = _pick_fresh(_SKY_NIGHT_VARIANTS, rng, recent)
         return tmpl.format(moon_str=moon_str, planet_str=planet_str, milky_str=milky_str, aurora_str=aurora_str)
 
     sun_alt_r = round(sun_alt)
+    recent = set(_RECENT_SCENES[-10:]) if _RECENT_SCENES else set()
     if sun_alt_r < 15:
-        tmpl = _pick(_SKY_DAY_LOW_VARIANTS, rng)
+        tmpl = _pick_fresh(_SKY_DAY_LOW_VARIANTS, rng, recent)
     else:
-        tmpl = _pick(_SKY_DAY_VARIANTS, rng)
+        tmpl = _pick_fresh(_SKY_DAY_VARIANTS, rng, recent)
     return tmpl.format(sun_alt=sun_alt_r)
 
 
@@ -1490,6 +1801,8 @@ _ART_SCENE: list[str] = [
     "在这儿遇见它，像是被安排的。",
     "原作不在这里，但感觉在。",
     "光打在画上的角度，跟旁边的影子对上了。",
+    "画里的风景跟眼前的风景，隔着时间和画布，但有些东西是一样的。",
+    "你在这儿看这幅画，跟在美术馆里看，是两种不同的事。",
 ]
 
 
@@ -1569,18 +1882,42 @@ _ESTABLISH_VISUAL: dict[str, list[str]] = {
     "day": [
         "光铺满{surface_zh},{shape}。",
         "白昼的光从头顶下来,{surface_zh}上没有藏东西的地方。",
+        "太阳在天上,{surface_zh}被照得发白。{shape}。",
+        "光把{surface_zh}的颜色漂淡了。{shape}。",
+        "天亮着,{surface_zh}在光底下,{shape}。",
+        "阳光砸在{surface_zh}上,{shape}。",
+        "{surface_zh},白天。{shape},光从头顶压下来。",
+        "光落下来,{surface_zh}上什么都看得见。{shape}。",
     ],
     "civil": [
         "天边的光斜过来,{surface_zh}的影子都拉长了。",
         "橘红色的天边,{shape}成了剪影。",
+        "黄昏。{surface_zh}的轮廓在光里模糊了,{shape}。",
+        "天边烧起来了,{surface_zh}染成橘红色。{shape}。",
+        "最后一缕光落在{surface_zh}上,{shape}。",
+        "黄昏的光是斜的,{surface_zh}上全是长影子。{shape}。",
+        "天边的云烧红了,{surface_zh}在底下,{shape}。",
+        "太阳在地平线上,{surface_zh}被染成两种颜色。{shape}。",
     ],
     "night": [
         "天黑了,{surface_zh}沉进夜色里,只有{light}还亮着。",
         "夜把{surface_zh}收走了,{light}是仅剩的坐标。",
+        "黑下来的{surface_zh},{light}在远处闪。",
+        "夜,{surface_zh}看不见了。{light}在黑暗里挂不住。",
+        "天一黑,{surface_zh}就没了。{light}是唯一的亮。",
+        "{surface_zh}沉进夜色,{light}在远处。",
+        "夜里,{surface_zh}变成一个影子,{light}是它的边界。",
+        "夜把{surface_zh}吞了,{light}从缝隙里漏出来。",
     ],
     "dawn": [
         "天边刚撕开一条缝,光先落在{surface_zh}的尖上。",
         "晨雾还没散,{shape}在雾里浮着。",
+        "黎明。{surface_zh}在灰白色的光里醒过来。{shape}。",
+        "天边有光了,{surface_zh}从黑变成灰。{shape}。",
+        "雾里,{surface_zh}的轮廓刚看得见。{shape}。",
+        "第一缕光落在{surface_zh}上。{shape},一切都还在。",
+        "黎明的光薄薄的,{surface_zh}在雾里。{shape}。",
+        "天边亮了,{surface_zh}从夜色里走出来。{shape}。",
     ],
 }
 
@@ -1734,6 +2071,51 @@ _COLD_TOUCH_VARIANTS: list[str] = [
     "口袋里摸到什么，手已经没知觉了",
 ]
 
+# ── River alignment text pool (Card 35: river rendering) ────────────
+# 四种方向: 顺流(downstream)、逆流(upstream)、横渡(crossing)、沿河(along)
+_RIVER_ALIGNMENT_TEXT: dict[str, list[str]] = {
+    "downstream": [
+        "水往下游走,你顺着它。",
+        "河流的方向就是你的方向。水在脚边往低处去。",
+        "顺着水流走。水知道路在哪。",
+        "你跟着河走。水往低处去,你也是。",
+        "河流往下游。你踩着岸边的石头,方向跟水一样。",
+        "水声在下游的方向。你顺着河岸走。",
+        "河往东去。你跟着它,脚下的泥是湿的。",
+        "水流的方向,就是你要去的方向。你顺着走。",
+    ],
+    "upstream": [
+        "你逆着水流走。每一步都要顶着水的脾气。",
+        "河从上游来,你往上游去。水推着你的脚。",
+        "逆流。水从你脚边冲过去,你不让它。",
+        "你朝上游走。水流的方向跟你相反,你不在乎。",
+        "河从上面来,你往上面走。水声一直在耳边。",
+        "逆着河走。脚下的石头被水冲得圆。",
+        "你逆流而上。水在脚踝边打转,你站住了。",
+        "上游的方向。河从那边来,你往那边去。",
+    ],
+    "crossing": [
+        "你踩着石头过河。水在脚踝以下。",
+        "河不宽,你跨了三步就过去了。鞋底湿了。",
+        "你淌水过河。水凉,石头滑,你一步一步地走。",
+        "河在面前。你踩着露出水面的石头,一步一步跨过去。",
+        "你涉水而过。水到膝盖,脚底的石头圆。",
+        "河不深。你提着裤脚走过去,水凉得刺骨。",
+        "你踩着河里的石头过河。每一步都得找稳的。",
+        "过河。水从左边流过来,你从这边走到那边。",
+    ],
+    "along": [
+        "你沿着河走。水声一直在左边。",
+        "河在旁边。你跟它并排走,谁也不等谁。",
+        "沿着河岸。水的声音从始至终都在。",
+        "你走在河边。水面的光落在你脸上。",
+        "河在右边。你沿着它走,脚下的路跟河一样长。",
+        "沿着河走。水里的倒影跟着你走。",
+        "你跟河平行。它走它的,你走你的。",
+        "河岸上有路。你沿着走,水声一直在耳边。",
+    ],
+}
+
 
 def _season(month: int, lat: float) -> str:
     """Get season name from month and latitude. Northern hemisphere default, southern flipped."""
@@ -1804,18 +2186,42 @@ _COUNTRY_ZH: dict[str, str] = {
 _HOOKS_WATER: list[str] = [
     "水声在{dir}边,隐隐约约。",
     "{dir}边有浪的声音,顺着声音能走到水边。",
+    "风从{dir}边来,带着水汽。",
+    "{dir}边有水的味道,你还没看见水。",
+    "你听见{dir}边有水声。不知道是河还是湖。",
+    "{dir}方传来水的声音。你朝那边看了一眼。",
+    "空气里的湿度告诉你,{dir}边有水。",
+    "水声从{dir}边飘过来,隐隐的,断断续续。",
 ]
 _HOOKS_UPHILL: list[str] = [
     "高处还有路,风从上面下来。",
     "往上走,山在上面等着。",
+    "上面的风比底下冷,你还没上去就知道了。",
+    "抬头看,路还在往上走。",
+    "山在上面。你还没有到头。",
+    "往上看,路绕过去了,你看不见那边有什么。",
+    "高处有云的影子落在地上,你还没走到那里。",
+    "上面的空气更薄,你还没到就已经喘了。",
 ]
 _HOOKS_RADIO: list[str] = [
     "收音机的声音不知道从哪来,顺着它能找到有人烟的地方。",
     "哪个角落里漏出电台的声音,这里不荒凉。",
+    "电台的声音从远处飘过来,断断续续的。",
+    "有音乐声。你不知道从哪来,但你知道有人在。",
+    "收音机的信号在风里飘。你顺着声音走。",
+    "电台还在播。信号弱,但还在。",
+    "远处有电台的声音。你朝那边看了一眼。",
+    "收音机里有人说话。你听不清说什么,但声音在。",
 ]
 _HOOKS_GENERIC: list[str] = [
     "再往前走,雾或者光,总有一个会变。",
     "路在脚下,还没走完。",
+    "前面的路你看不见,但你还在走。",
+    "风从前面吹过来,你不知道那边有什么。",
+    "路没有尽头。你继续走。",
+    "往前走,地平线还在远处。",
+    "你不知道前面是什么,但你没有停。",
+    "远处有什么在动。你看不清,但你朝那边走了一步。",
 ]
 
 
@@ -1980,12 +2386,20 @@ def render_establish(payload: dict, rng: random.Random) -> str:
             season_zh = _SEASON_EN_TO_ZH.get(season, "")
             # 1. Try exact place name match
             place_pool = seasonal_data.get((place, season_zh), [])
-            # 2. Try biome-based match (standard seasons)
+            # 2. Try biome-specific seasonal (built at build time, e.g. seasonal_coast.txt)
+            if not place_pool and biome:
+                biome_seasonal = _load_seasonal_biome(biome)
+                place_pool = biome_seasonal.get((place, season_zh), [])
+            # 3. Try biome-based match (standard seasons)
             if not place_pool and biome:
                 biome_place = _BIOME_TO_SEASONAL_PLACE.get(biome, "")
                 if biome_place:
                     place_pool = seasonal_data.get((biome_place, season_zh), [])
-            # 3. Try tropical seasons for rainforest
+                    # Also try biome-specific file with biome place name
+                    if not place_pool and biome:
+                        biome_seasonal = _load_seasonal_biome(biome)
+                        place_pool = biome_seasonal.get((biome_place, season_zh), [])
+            # 4. Try tropical seasons for rainforest
             if not place_pool and biome == "rainforest":
                 trop_season = _TROPICAL_SEASON.get(season, "")
                 if trop_season:
@@ -1993,7 +2407,7 @@ def render_establish(payload: dict, rng: random.Random) -> str:
             if place_pool:
                 scene_text = rng.choice(place_pool)
             else:
-                # 3. Fall back to generic seasonal scene files
+                # 5. Fall back to generic seasonal scene files
                 seasonal_pool = _load_scenes(season)
                 if seasonal_pool:
                     scene_text = rng.choice(seasonal_pool)
@@ -2067,6 +2481,7 @@ def render_establish(payload: dict, rng: random.Random) -> str:
 # ── module-level biome context for handlers that need it ─────────────
 _CURRENT_BIOME: str = ""
 _RECENT_TOUCH: set[str] = set()
+_RECENT_SCENES: list[str] = []
 
 
 # ── handler registry ─────────────────────────────────────────────────

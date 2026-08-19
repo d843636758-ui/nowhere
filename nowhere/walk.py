@@ -103,6 +103,25 @@ def water_ahead_km(lat: float, lon: float, bearing_deg: float, max_km: float = 2
     return None
 
 
+def nearest_ocean_km_and_bearing(
+    lat: float, lon: float, max_km: float = 50.0
+) -> tuple[float | None, float | None]:
+    """Scan 8 compass directions for the nearest ocean within *max_km*.
+
+    Returns ``(min_km, bearing_deg)`` or ``(None, None)`` if no ocean found.
+    """
+    min_km: float | None = None
+    min_bearing: float | None = None
+    for i in range(8):
+        bearing = i * 45.0
+        d = water_ahead_km(lat, lon, bearing, max_km=max_km)
+        if d is not None:
+            if min_km is None or d < min_km:
+                min_km = d
+                min_bearing = bearing
+    return min_km, min_bearing
+
+
 def step(
     state: WorldState,
     bearing_deg: float | None,

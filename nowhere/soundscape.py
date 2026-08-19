@@ -7,10 +7,15 @@
 from __future__ import annotations
 
 import json
+import math
 import pathlib
 import random
+from typing import Final
 
 _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
+
+_FALLBACK_PATH: Final = _DATA_DIR / "radio_fallback.json"
+_EARTH_RADIUS_KM: Final = 6371.0
 
 _SURFACE_ZH: dict[str, str] = {
     "forest": "林地", "grass": "草地", "rock": "岩地", "sand": "沙地",
@@ -193,3 +198,102 @@ def soundscape_credit(biome: str, rng: random.Random) -> str | None:
         f"耳机里这些,来自{where},{who}录的。{note}",
     ]
     return rng.choice(templates)
+
+
+# ── Card 22: Radio Station Selection (选台国家码阈值) ──────────────
+
+_radio_cache: list[dict] | None = None
+
+
+def _load_radio_fallback() -> list[dict]:
+    global _radio_cache
+    if _radio_cache is None:
+        if _FALLBACK_PATH.exists():
+            _radio_cache = json.loads(_FALLBACK_PATH.read_text(encoding="utf-8"))
+        else:
+            _radio_cache = []
+    return _radio_cache
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    lat1, lon1, lat2, lon2 = map(math.radians, (lat1, lon1, lat2, lon2))
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * _EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+def select_station(
+    lat: float,
+    lon: float,
+    country_code: str,
+    rng: random.Random | None = None,
+) -> dict | None:
+    """Select a radio station for the given location.
+
+    Priority:
+      1. Same-country live stations (nearest by haversine)
+      2. International stations (country == "international")
+      3. None (caller should render a "quiet" variant)
+
+    Station entries with ``"dead": true`` are skipped entirely.
+
+    Returns a station dict ``{name, genre, stream_url, homepage, country}``
+    or *None* if no station is available.
+    """
+    stations = _load_radio_fallback()
+    if not stations:
+        return None
+
+    # Partition: same country, international, dead
+    same_country: list[dict] = []
+    international: list[dict] = []
+
+    for st in stations:
+        if st.get("dead"):
+            continue
+        st_cc = st.get("country", "")
+        if st_cc == country_code:
+            same_country.append(st)
+        elif st_cc == "international":
+            international.append(st)
+
+    # Pick nearest from same-country pool
+    def _pick_nearest(pool: list[dict]) -> dict | None:
+        if not pool:
+            return None
+        best = None
+        best_dist = math.inf
+        for st in pool:
+            st_lat = st.get("lat")
+            st_lon = st.get("lon")
+            if st_lat is None or st_lon is None:
+                continue
+            d = _haversine_km(lat, lon, st_lat, st_lon)
+            if d < best_dist:
+                best_dist = d
+                best = st
+        return best
+
+    # 1. Same-country nearest
+    pick = _pick_nearest(same_country)
+    if pick is not None:
+        return pick
+
+    # 2. International fallback
+    pick = _pick_nearest(international)
+    if pick is not None:
+        return pick
+
+    # 3. No station available
+    return None
+
+
+def radio_quiet_text(rng: random.Random) -> str:
+    """Return a "quiet radio" variant when no station is available."""
+    return rng.choice([
+        "收音机搜了一圈,只有沙沙的白噪音。",
+        "旋钮转到底,什么也没收到。只有电流的嘶嘶声。",
+        "电台一个都没收到。安静。",
+        "调频里空空的,偶尔一声咔嗒。",
+    ])

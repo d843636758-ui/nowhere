@@ -349,18 +349,64 @@ def _get_lat_band(lat: float) -> str:
     return "tropical" if abs_lat < 23 else "cold"
 
 
+# ── Climate zone filtering (Card 46 扩编) ──────────────────────────
+
+_CLIMATE_ZONES = [
+    (60, 90, "寒带"),
+    (40, 60, "温带"),
+    (23.5, 40, "暖温带"),
+    (0, 23.5, "热带"),
+]
+
+_ZONE_TO_BAND: dict[str, str] = {
+    "热带": "tropical",
+    "暖温带": "sub",
+    "温带": "warm",
+    "寒带": "cold",
+}
+
+
+def _get_climate_zone(lat: float) -> str:
+    """Map latitude to climate zone (hemisphere-independent).
+
+    Rules:
+        |lat| < 23.5  -> 热带
+        23.5 <= |lat| < 40  -> 暖温带
+        40 <= |lat| < 60  -> 温带
+        |lat| >= 60  -> 寒带
+    """
+    abs_lat = abs(lat)
+    for lo, hi, zone in _CLIMATE_ZONES:
+        if lo <= abs_lat < hi:
+            return zone
+    return "热带" if abs_lat < 23.5 else "寒带"
+
+
 def _check_phenology(dt: datetime, lat: float, rng: random.Random) -> str | None:
-    """Check phenology events for current month/latitude. Returns text or None."""
+    """Check phenology events for current month/latitude. Returns text or None.
+
+    Climate zone filtering: determines zone from latitude, maps to data band,
+    then picks a random event for the current month.
+
+    South hemisphere month flipping: southern latitudes use north-hemisphere
+    data with month offset +6 (month 1 in south = month 7 in north).
+    """
     data = _load_phenology()
     events = data.get("events", {})
-    hemisphere = "south" if lat < 0 else "north"
-    band = _get_lat_band(lat)
 
-    hem_events = events.get(hemisphere, {})
-    band_events = hem_events.get(band, {})
+    zone = _get_climate_zone(lat)
+    band = _ZONE_TO_BAND.get(zone, _get_lat_band(lat))
+
+    # Determine effective month: south hemisphere flips +6
     month = dt.astimezone(ZoneInfo("Asia/Shanghai")).month
+    if lat < 0:
+        month = ((month - 1 + 6) % 12) + 1
+
     month_str = str(month)
 
+    # Look up north data (used directly for north, flipped for south)
+    north_events = events.get("north", {})
+    band_events = north_events.get(band, {})
     month_events = band_events.get(month_str, [])
     if not month_events:
         return None
@@ -760,6 +806,16 @@ _QUIET_WAIT = [
     "什么都没变,只有时间变了。",
 ]
 
+# ── Card 53: 重地落地变体——少声色多留白 ─────────────────────────────
+# 禁煽情禁消费,禁"很/非常/十分"。
+_HEAVY_ARRIVE_VARIANTS: list[str] = [
+    "街上安静。不是没有声音,是声音到这里变轻了。",
+    "你站了一会儿。不知道该往哪走。",
+    "空气里有一种重量,不是天气的那种。",
+    "脚步慢下来了。不是累,是别的什么。",
+    "你抬头看,天还是那个天。但地不一样。",
+]
+
 # ── Card 13: bury/find variants ──────────────────────────────────
 _BURY_VARIANTS: list[str] = [
     "你把{name}埋进了土里。这里记得。",
@@ -1031,6 +1087,38 @@ _WILDERNESS_FLESH_EVENTS: list[str] = [
 ]
 
 
+def _force_content(
+    is_deep_wilderness: bool,
+    biome: str | None,
+    env: dict,
+    rng: random.Random,
+) -> str | None:
+    """Card 40: after 3+ empty steps, the world actively provides something.
+
+    Returns a content string or None (shouldn't normally be None, but safe fallback).
+    """
+    if is_deep_wilderness:
+        return rng.choice(_WILDERNESS_VARIANTS)
+
+    # Try terrain variant from describe
+    surface = env.get("surface", "")
+    if surface:
+        terrain_text = describe.render(
+            "terrain", {"surface": surface}, None, rng,
+            biome=biome or "", elevation=env.get("elevation", 0),
+        )
+        if terrain_text:
+            return terrain_text
+
+    # Fallback: weather mention
+    weather = env.get("weather", {})
+    if weather:
+        return describe.render("weather", weather, None, rng)
+
+    # Last resort: wilderness variant (works for any biome)
+    return rng.choice(_WILDERNESS_VARIANTS)
+
+
 def _find_nearby_destinations(lat: float, lon: float, rng) -> str:
     """Return a literary hint about a walkable place within ~20km."""
     import json
@@ -1284,6 +1372,10 @@ def _river_alignment_text(
                 "你顺着江走。水声一直在右边,不远不近。",
                 "你和江往同一个方向去。它比你快,但你不在乎。",
                 "沿江走,水声是你的节拍器。不急。",
+                "你顺着水流的方向走。岸边的芦苇被水推着,弯了又直。",
+                "下游的方向。水声不大,但一直在。你的脚步跟着它的节奏。",
+                "你和江平行着走。它走它的,你走你的,但方向一样。",
+                "顺着江走,水面反着光。偶尔有漩涡,转一下就不见了。",
             ]
         else:
             variants = [
@@ -1291,16 +1383,41 @@ def _river_alignment_text(
                 "江从你对面来。你走一步,它推一步。",
                 "你和江对着走。它不停,你也不停。",
                 "逆流。风从上游吹下来,带着水汽。",
+                "你往上游走。水在脚边涌,像在跟你较劲。",
+                "逆着水走,每一步都踩在它退回去的尾巴上。",
+                "你和江逆着走。它推你,你推它,谁也没赢。",
+                "上游的水冲下来,撞在石头上碎了。你沿着碎声走。",
             ]
-        return rng.choice(variants)
+        # Dedup: avoid repeating within recent scenes
+        recent = set(_state.recent_scenes)
+        fresh = [v for v in variants if v not in recent]
+        if not fresh:
+            fresh = variants
+        pick = rng.choice(fresh)
+        _state.recent_scenes.append(pick)
+        _state.recent_scenes = _state.recent_scenes[-10:]
+        return pick
     elif abs(dot) < 0.3:
         # Walking across river
         variants = [
             "你横着江的走向走。水声从侧面流过。",
             "你垂直于江面走。每走一步,水声换个方位。",
             "横渡的方向。江在你左边,又到了右边。",
+            "你横着过。水声从正前方移到了背后。",
+            "你和江十字交叉。水声换了方向,像有人在转收音机。",
+            "横着走,江面越来越宽。你没过河,但水声变了。",
+            "你穿过江的走向。水在左边,然后在右边,然后听不见了。",
+            "横渡。你没下水,但水声一直在侧边跟着你。",
         ]
-        return rng.choice(variants)
+        # Dedup: avoid repeating within recent scenes
+        recent = set(_state.recent_scenes)
+        fresh = [v for v in variants if v not in recent]
+        if not fresh:
+            fresh = variants
+        pick = rng.choice(fresh)
+        _state.recent_scenes.append(pick)
+        _state.recent_scenes = _state.recent_scenes[-10:]
+        return pick
 
     return ""
 
@@ -1451,8 +1568,19 @@ _BODY_STATE_LINES: list[str] = [
     "你擦了一下额头上的汗。",
 ]
 
+# ── Card 51: toward_sea rejection variants (nearest coast > 50 km) ──
+_SEA_REJECT_VARIANTS: list[str] = [
+    "这里看不见海。最近的海在{dist}公里外。",
+    "往那个方向走，全是陆地。海在{dir}，远着呢。",
+    "你朝着海的方向走了几步，地势一点没变。海不在这边。",
+]
 
-def _bearing_to_label(bearing_deg: float | None, semantic: str | None) -> str | None:
+
+def _bearing_to_label(
+    bearing_deg: float | None,
+    semantic: str | None,
+    water_body_label: str | None = None,
+) -> str | None:
     """Convert bearing degrees or semantic direction to a Chinese label."""
     if bearing_deg is not None:
         key = round(bearing_deg / 45) * 45 % 360
@@ -1460,7 +1588,7 @@ def _bearing_to_label(bearing_deg: float | None, semantic: str | None) -> str | 
     if semantic == "uphill":
         return "上山"
     if semantic == "toward_sea":
-        return "海边"
+        return water_body_label or "水边"
     return None
 
 
@@ -1480,7 +1608,8 @@ def _build_walk_narrative(
     narrative = _state.narrative
 
     # ── 1. Direction ──────────────────────────────────────────────────
-    new_dir = _bearing_to_label(bearing_deg, semantic)
+    _wbl = step_result.get("water_body_label")
+    new_dir = _bearing_to_label(bearing_deg, semantic, water_body_label=_wbl)
     if new_dir and new_dir != narrative.get("direction"):
         if narrative.get("direction"):
             parts.append(f"你转身往{new_dir}走。")
@@ -2103,9 +2232,16 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         _state.souvenir = old_souvenir
         _mishap_last_step = -999
     # Card 16: blind mode
+    _blind_auto_disabled = False
     if not resume and not restored:
         _state.blind = blind
         _state.blind_clues = 0
+        # Card 16: previously revealed places cannot be blind-opened again
+        if blind and place_name:
+            _revealed = placememory.revealed_places()
+            if place_name in _revealed:
+                _state.blind = False
+                _blind_auto_disabled = True
     # Card 17: door key
     if not resume and not restored:
         _state.door_key = norm_key if norm_key else None
@@ -2187,8 +2323,16 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             pass
 
     # ── 4. Salience candidates → rank ────────────────────────────────
+    # Card 53: compute heavy_nearby before ranking so gravity can warp scores
+    _heavy_nearby = humanities.is_heavy_place(place_name)
+    if not _heavy_nearby:
+        # Also check: is there a heavy place within 5km?
+        _h_probe = humanities.nearby_place(lat, lon, set(), _rng)
+        if _h_probe:
+            _heavy_nearby = humanities.get_place_weight(_h_probe.get("place")) == "heavy"
+
     candidates = _build_salience_candidates(env, None)
-    top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent)
+    top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby)
     _recent_salience_kinds = {c["kind"] for c in top3}
 
     # ── 5. 开幕镜头 + top3(天气/天空已被开幕吃掉)─────────────────────
@@ -2330,6 +2474,11 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     _month = _now.month if _now else None
     prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else ""})
 
+    # ── 5c. Card 53: 重地落地——少声色多留白 ────────────────────────
+    if _heavy_nearby and not _blind:
+        _heavy_arrive = _rng.choice(_HEAVY_ARRIVE_VARIANTS)
+        prose = _heavy_arrive + "\n" + prose
+
     # ── 5d. 人文卡: 落点附近触发(Card 16: blind时禁抽) ───────────
     if not _blind:
         h_card = humanities.nearby_place(lat, lon, _state.seen_humanities, _rng)
@@ -2344,6 +2493,10 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     if _web_port is not None and not _web_url_announced:
         prose += f"\n（旁观者可以在这里看你走路：http://localhost:{_web_port}）"
         _web_url_announced = True
+
+    # Card 16: blind auto-disabled note
+    if _blind_auto_disabled:
+        prose += "\n这个地方你已经认识了。"
 
     prose = describe._normalize_prose(prose)
     _state.last_text = prose
@@ -2837,6 +2990,25 @@ def _pick_souvenir(lat: float, lon: float, env: dict, rng: random.Random) -> dic
     return {"name": item["name"], "from": place or f"{lat:.1f}°,{lon:.1f}°", "desc": item["desc"]}
 
 
+def _filter_ask_hints(sections: list[str]) -> list[str]:
+    """Card 52: remove 'ask 能问出更多' when knowledge layer has no content for the name."""
+    result = []
+    for s in sections:
+        if "ask 能问出更多" not in s:
+            result.append(s)
+            continue
+        # Extract person name from "名字。这名字你记下了。ask 能问出更多。"
+        m = re.search(r'([一-鿿·]{1,20})。这名字你记下了。ask 能问出更多。', s)
+        if m and knowledge.has_knowledge(m.group(1)):
+            result.append(s)
+        else:
+            # Remove hint line, keep rest of section
+            cleaned = re.sub(r'\n?[一-鿿·]{1,20}。这名字你记下了。ask 能问出更多。', '', s)
+            if cleaned.strip():
+                result.append(cleaned)
+    return result
+
+
 @_serialized_action
 async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dict:
     """Walk one step in the given direction."""
@@ -2862,11 +3034,41 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # ── 1. Parse direction & step ────────────────────────────────────
     bearing, semantic, direction_invalid = _parse_bearing(direction)
+
+    # ── Card 51: toward_sea pre-check — reject if coast > 50 km ────
+    if semantic == "toward_sea":
+        lat0, lon0 = _state.pos
+        sea_km, sea_bearing = walk_mod.nearest_ocean_km_and_bearing(lat0, lon0)
+        if sea_km is None or sea_km > 50:
+            from nowhere.places import _bearing_word as _bw
+            dist_str = f"{round(sea_km)}" if sea_km is not None else "几百"
+            dir_str = _bw(sea_bearing) if sea_bearing is not None else "很远"
+            reject_text = _rng.choice(_SEA_REJECT_VARIANTS).format(
+                dist=dist_str, dir=dir_str,
+            )
+            return {
+                "text": reject_text,
+                "data": {
+                    "position": {"lat": lat0, "lon": lon0},
+                    "rejected": "toward_sea",
+                    "nearest_sea_km": sea_km,
+                },
+            }
+
     # Card 50: fatigue>6 caps distance to 3km
     _max_dist = walk_mod._DIST_MAX_FATIGUED if _state.fatigue > 6.0 else walk_mod._DIST_MAX
     step_result = walk_mod.step(_state, bearing, semantic, distance_km, max_dist=_max_dist)
     # NOTE: time accumulation is handled inside walk.step() using actual
     # distance and speed — do NOT add time here (would double-count).
+
+    # ── Card 51: annotate step_result with water body label ──────────
+    if semantic == "toward_sea" and not step_result.get("blocked"):
+        _WATER_BODY_LABELS = {
+            "water_ocean": "海边",
+            "water_fresh": "河边",
+        }
+        dest_surface = step_result.get("new_surface", "")
+        step_result["water_body_label"] = _WATER_BODY_LABELS.get(dest_surface, "水边")
 
     # ── 2. Blocked → render blocked only ─────────────────────────────
     if step_result.get("blocked"):
@@ -3069,8 +3271,15 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # 留白: 缓存命中且世界没变时,跳过 env 候选举的渲染;encounter 照常 roll
     sections: list[str] = []
     if not env_cached:
+        # Card 53: gravity — check if walking near heavy place
+        _heavy_nearby_walk = humanities.is_heavy_place(_state.place_name)
+        if not _heavy_nearby_walk:
+            _h_probe_w = humanities.nearby_place(lat, lon, set(), _rng)
+            if _h_probe_w:
+                _heavy_nearby_walk = humanities.get_place_weight(_h_probe_w.get("place")) == "heavy"
+
         candidates = _build_salience_candidates(env, prev_env)
-        top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent)
+        top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby_walk)
         _recent_salience_kinds = {c["kind"] for c in top3}
         for c in top3:
             prev = None
@@ -3130,11 +3339,32 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         env_cached=env_cached, prev_env=prev_env,
         sections=sections,
     )
+    _sections_before_actions = len(sections)
     for act in ACTIONS:
         if act.should(ctx):
+            # Card 48: resolve() for side effects before render()
+            _resolve = getattr(act, "resolve", None)
+            if _resolve:
+                _resolve(ctx)
             t = act.render(ctx)
             if t:
                 sections.append(t)
+
+    # ── Card 52: filter "ask" hints — only if knowledge layer has content ──
+    sections = _filter_ask_hints(sections)
+
+    # ── Card 40: 3步空转=世界主动给 (Bethesda 30-second rule) ─────────
+    _sections_after_actions = len(sections)
+    if _sections_after_actions > _sections_before_actions:
+        _state.steps_since_content = 0
+    else:
+        _state.steps_since_content += 1
+
+    if _state.steps_since_content >= 3:
+        _forced = _force_content(_is_deep_wilderness, _state.biome, env, _rng)
+        if _forced:
+            sections.append(_forced)
+            _state.steps_since_content = 0
 
     # ── Card 50: food card hunger clearing ────────────────────────────
     # Scan sections added this step for food-related content
@@ -3149,7 +3379,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             break
 
     # ── 5a2. Narrative connector (direction change or every 3rd step)
-    direction_label = _bearing_to_label(bearing, semantic)
+    direction_label = _bearing_to_label(bearing, semantic, water_body_label=step_result.get("water_body_label"))
     if not direction_label and semantic == "forward":
         path_bearing = walk_mod._bearing_from_path(_state.path)
         direction_label = _bearing_to_label(path_bearing, None)
@@ -3414,8 +3644,6 @@ async def listen_impl(seconds: int = 10) -> dict:
 
     if playing:
         radio_text += f"（正在播放 {seconds} 秒）"
-    else:
-        radio_text += f"（流地址: {stream_url}）"
 
     full_text = sound_text + radio_text
     # Card 21: Append soundscape credit if available
@@ -3726,7 +3954,7 @@ async def ask_impl(topic: str) -> dict:
     if not result:
         return {"text": "关于这个,这里没有留下文字。", "data": {}}
 
-    text = result.get("extract", "")
+    text = knowledge.voice_layer(result.get("extract", ""), _rng)
     _record_footprint("ask", text)
     return {"text": text, "data": result}
 
@@ -4017,11 +4245,17 @@ def where_am_i_impl() -> dict:
 
 def _postmark(lat: float, lon: float) -> dict:
     """邮戳保留旅程内当地时间；现实寄出时间由明信片另行记录。"""
+    # Use current env elevation if available (fresher than raw terrain lookup),
+    # fall back to terrain module for first postcard before any walk.
+    env = _state.last_env or {}
+    elev = env.get("elevation")
+    if elev is None:
+        elev = terrain.elevation(lat, lon)
     stamp: dict = {
         "place": _state.place_name or f"{lat:.2f}, {lon:.2f}",
         "lat": round(lat, 4),
         "lon": round(lon, 4),
-        "elevation": round(terrain.elevation(lat, lon)),
+        "elevation": round(elev),
     }
     utc_now = _state.now() or datetime.now(timezone.utc)
     tz_name = _tf.timezone_at(lat=lat, lng=lon)
@@ -4948,6 +5182,7 @@ def guess(place: str) -> dict:
     if matched:
         _state.blind = False
         _state.save()
+        placememory.save_revealed_place(actual_place)
         text = _rng.choice(_REVEAL_VARIANTS["correct"]).format(place=actual_place)
         return {"text": text, "data": {"revealed": True, "place": actual_place, "method": "correct"}}
     else:
@@ -4956,6 +5191,7 @@ def guess(place: str) -> dict:
             # Give up after 4 wrong guesses
             _state.blind = False
             _state.save()
+            placememory.save_revealed_place(actual_place)
             text = _rng.choice(_REVEAL_VARIANTS["far"]).format(place=actual_place)
             return {"text": text, "data": {"revealed": True, "place": actual_place, "method": "far"}}
         else:
@@ -4978,6 +5214,7 @@ def reveal() -> dict:
     actual_place = _state.place_name or "未知之地"
     _state.blind = False
     _state.save()
+    placememory.save_revealed_place(actual_place)
     text = _rng.choice(_REVEAL_VARIANTS["give_up"]).format(place=actual_place)
     return {"text": text, "data": {"revealed": True, "place": actual_place, "method": "give_up"}}
 

@@ -25,6 +25,13 @@ _REGIONAL_FILES = [
     "humanities_historical.json",
 ]
 
+# ── Card 53: 重地列表——屠杀/灾难/战争遗址 ─────────────────────────────
+# weight="heavy" 的地名, salience 用此做重力维度。
+_HEAVY_EVENT_NAMES: set[str] = {
+    "卡廷惨案", "南京大屠杀", "广岛原爆", "奥斯维辛",
+    "卢旺达种族灭绝", "亚美尼亚大屠杀", "格尔尼卡轰炸", "索姆河战役",
+}
+
 _raw: dict | None = None
 _places: dict | None = None
 _aliases: dict | None = None
@@ -67,8 +74,42 @@ def _load() -> dict:
                 added += 1
         print(f"[humanities] {fname}: {len(entries)} total, {added} new merged", flush=True)
 
+    # ── Card 53: stamp weight on places with heavy events ──────────────
+    for _pname, _pentry in _places.items():
+        if not isinstance(_pentry, dict):
+            continue
+        for _cat in ("事件",):
+            for _card in _pentry.get(_cat, []):
+                if _card.get("name") in _HEAVY_EVENT_NAMES:
+                    _pentry["weight"] = "heavy"
+                    break
+            if _pentry.get("weight") == "heavy":
+                break
+
     print(f"[humanities] merged total: {len(_places)} places", flush=True)
     return _raw
+
+
+def is_heavy_place(place_name: str | None) -> bool:
+    """Card 53: 此地是否重地(屠杀/灾难/战争遗址)。"""
+    if not place_name:
+        return False
+    _load()
+    entry = _places.get(place_name)
+    if not entry:
+        return False
+    return entry.get("weight") == "heavy"
+
+
+def get_place_weight(place_name: str | None) -> str:
+    """Card 53: 返回地名的 weight 等级。'heavy' 或 'normal'。"""
+    if not place_name:
+        return "normal"
+    _load()
+    entry = _places.get(place_name)
+    if not entry:
+        return "normal"
+    return entry.get("weight", "normal")
 
 
 def _get_cards() -> list[_cards.Card]:

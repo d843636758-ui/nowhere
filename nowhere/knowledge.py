@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import pathlib
+import random as _random
 import re
 import urllib.parse
 
@@ -310,3 +311,82 @@ async def _resolve_place_name(lat: float, lon: float) -> str:
     except Exception as exc:
         logger.debug("places.nearby failed: %s", exc)
     return ""
+
+
+# ── 声口层: voice processing for knowledge results ────────────────
+
+_MAX_VOICE_LEN = 150
+
+_WIKI_OPENING_RE = re.compile(
+    r'^[一-鿿·]{1,20}(?:是|位于|坐落于|地处|属于|为)'
+)
+
+_DISTANCING_LINES: list[str] = [
+    "这是书上说的。",
+    "书里这么写的,对不对你到了再看。",
+    "文字是这么记的。",
+]
+
+
+def _t2s(text: str) -> str:
+    """Traditional → Simplified Chinese (opencc t2s, same as art.py)."""
+    try:
+        import opencc
+        converter = opencc.OpenCC("t2s")
+        return converter.convert(text)
+    except Exception:
+        return text
+
+
+def _strip_wiki_opening(text: str) -> str:
+    """Replace encyclopedia-style opening ('XX是…' / 'XX位于…') with natural entry."""
+    m = _WIKI_OPENING_RE.match(text)
+    if m:
+        text = text[m.end():]
+        text = text.lstrip('，,。 ')
+    return text
+
+
+def _truncate_at_boundary(text: str, max_len: int = _MAX_VOICE_LEN) -> str:
+    """Cut to <=max_len chars, preferring sentence boundaries."""
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len]
+    for sep in ('。', '！', '？', '；', '.', '!', '?'):
+        idx = cut.rfind(sep)
+        if idx > 50:
+            return cut[:idx + 1]
+    return cut + "……"
+
+
+def voice_layer(text: str, rng: _random.Random | None = None) -> str:
+    """声口层: t2s, strip wiki tone, truncate, add distancing line.
+
+    Call this on every ZIM/KB extract before returning to the user.
+    """
+    if not text:
+        return text
+    text = _t2s(text)
+    text = _strip_wiki_opening(text)
+    text = _truncate_at_boundary(text)
+    if rng is None:
+        rng = _random.Random()
+    text += rng.choice(_DISTANCING_LINES)
+    return text
+
+
+def has_knowledge(topic: str) -> bool:
+    """Quick sync check: does the local knowledge base have content for *topic*?
+
+    Used by walk_impl to decide whether to hint 'ask 能问出更多'.
+    Only checks local_kb (fast, no ZIM access).
+    """
+    kb = _load_local_kb()
+    if not topic:
+        return False
+    if topic in kb:
+        return True
+    for name in kb:
+        if topic in name:
+            return True
+    return False
