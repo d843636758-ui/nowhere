@@ -111,7 +111,7 @@ def test_no_gain_real_flat():
     s.pos = (23.4162, 25.6628)  # 撒哈拉腹地,真的平
     s.mode = "land"
     r = walk.step(s, None, "uphill", 2.0)
-    assert r.get("no_gain") or r.get("far_slope") is not None or True  # 不炸就行
+    assert r.get("no_gain") or r.get("far_slope") is not None  # 不炸就行
     # 关键是不许报错,逻辑可达
     assert "blocked" in r
 

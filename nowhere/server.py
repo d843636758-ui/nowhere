@@ -687,9 +687,13 @@ def _build_salience_candidates(
         "slope_deg": env.get("slope_deg", _t.get("slope_deg", 0)),
         "elevation_delta": env.get("elevation_delta", _t.get("elevation_delta", 0)),
     }
+    # prev_env may have terrain nested under "terrain" key, or flat at top level
+    _prev_t = (prev_env or {}).get("terrain")
+    if not isinstance(_prev_t, dict):
+        _prev_t = {"elevation": (prev_env or {}).get("elevation", 0), "surface": (prev_env or {}).get("surface", "")}
     candidates.append({
         "kind": "terrain",
-        "delta": _terrain_delta((prev_env or {}).get("terrain"), t),
+        "delta": _terrain_delta(_prev_t, t),
         "novelty": 0.2,
         "body_distance": 0.1,
         "payload": t,
@@ -1140,6 +1144,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # ── 3. Gather new point env ──────────────────────────────────────
     lat, lon = _state.pos
     now = _state.now()
+    # Snapshot before cache update — _gather_env_cached overwrites _state.last_env
+    prev_env = _state.last_env
     env, env_cached = await _gather_env_cached(lat, lon, now)
 
     # Attach step data to terrain payload
@@ -1201,7 +1207,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # 留白: 缓存命中且世界没变时,跳过 env 候选举的渲染;encounter 照常 roll
     sections: list[str] = []
     if not env_cached:
-        candidates = _build_salience_candidates(env, _state.last_env)
+        candidates = _build_salience_candidates(env, prev_env)
         top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds)
         _recent_salience_kinds = {c["kind"] for c in top3}
         for c in top3:
