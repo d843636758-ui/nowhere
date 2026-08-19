@@ -232,6 +232,51 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
+# 效率基建组(2026-08-20,旋复:"怎么让下次找bug更顺利/加城市写卡更有效率")
+
+## 卡29:一条命令全量体检(health)— 立刻可发
+
+只许新建:nowhere/health.py、nowhere/tests/test_health.py;不许改已有 qa 脚本(收编调用,不改逻辑)
+
+1. `python -m nowhere.health`:依次跑 qa_geocode / qa_probe / qa_alignment / qa_lqa 的规则层(四个脚本如果还没建,先把探活+禁词+结构这几个最轻的收进来,其余 stub 留接口),外加 `pytest nowhere/tests -q`。
+2. 输出一份分级报告(控制台摘要 + nowhere/health_report.md 全文):每项 ✓/✗/S 级,✗ 的带复现输入。总耗时控制在 3 分钟内(重的探针异步并行)。
+3. **复利钩子**:报告尾部自动生成"新确认 bug 类型清单"(与上次报告 diff,首次为空跑)——每种确认的新病,提示该加进哪个 qa 的规则/golden。
+4. test_health.py:命令跑通、报告生成、✗ 项确实出现在报告里(mock 一个已知失败)。
+
+验收:`python -m nowhere.health` 三分钟内出报告;故意弄坏一个卡,下次体检抓得到。
+
+---
+
+## 卡30:加城市流水线(add_place)— 立刻可发
+
+只许新建:tools/add_place.py、tools/__init__.py(如需)、nowhere/tests/test_add_place.py;不许改数据文件(merge 只在显式 --merge 时动)
+
+`python tools/add_place.py 南京` 一条龙,**人只写卡,其余管道干**:
+
+1. **坐标关**:geocode 查坐标 + country 反查校验,错配/落水(terrain.surface)当场红字拦下,给建议坐标——错配城市根本进不了门。
+2. **实据关**:zim(nowhere/data/packs/wikipedia_zh_mini.zim,facts_zim.py 有读法)拉条目存 drafts/南京_facts.md,供写卡参考。
+3. **模板关**:生成 drafts/南京_cards.json 骨架——localcolor 五类(物产/声音/痕迹/植被/美食)+ 节律,每个字段带注释说明(hours 是 [起,止) 左闭右开、months 不写=全年、卡文案规矩一句话),照 docs/CARD_FORMAT.md(卡31)。
+4. **质检关**:`--check 南京`:禁词扫描(含时间语境假阳性过滤,merge_qc.py 里有现成正则)/节律 hours 合法/键与文件名一致/坐标仍对——五关全过才许 merge。
+5. **合并关**:`--merge 南京`:进 localcolor.json 主文件(键冲突=红字停,不许静默覆盖)/explorable_index 注册/跑 test_localcolor + test_humanities。
+6. 幂等:同地重复 add 提示已存在;drafts/ 里有人改过的草稿不许覆盖(先备份)。
+7. test_add_place.py:全流程用 tmp 目录 mock 跑一遍;错配城市在第 1 关被拦;质检抓得出禁词卡。
+
+验收:新测试绿;拿一个真城市(南京)全流程走通留档。
+
+---
+
+## 卡31:资产存档(格式文档+写作 prompt)— 立刻可发
+
+只许新建:docs/CARD_FORMAT.md、docs/WRITING_PROMPT.md
+
+1. **CARD_FORMAT.md**:localcolor 五类卡的字段和语义(节律 hours [起,止) / months 缺省全年 / 卡 key 规则 "{地}/{类}/{i}")、humanities 卡结构、souvenirs/festivals(卡11)/traces(卡10)的格式、**常见坑清单**——键名漂移(突尼斯市≠突尼斯)、months 丢失(冰岛极光 9-3 月)、hours 越界、zh 空串。全部从 localcolor.py/humanities.py 的解析代码反推,和代码对不上算错。
+2. **WRITING_PROMPT.md**:把 task_text_quality/rewrite/ 里**过了敦煌单测的那版 prompt** 收编正式化——旧北京声口五条(一开场就在现场/你全程在动/声音是惊喜/色香味叠层次/零攻略百科腔)+ 禁词表 + 时间季节双硬要求(hours 整数+months)+ 四维度内容要求(动物/水文/植物/天空)+ 质量地板样例(廷巴克图/阿瑜陀耶/敦煌新卡各一)。**这是验证过的资产,一个字不许改,只许搬运整理。**
+3. 两份文档头部分别写"给谁用":CARD_FORMAT 给加卡的执行 AI(配合卡30 的 --check);WRITING_PROMPT 给写卡的 AI(配合实据 draft)。
+
+验收:文档生成;CARD_FORMAT 的字段说明与 localcolor.py 解析代码逐条对得上(抽查 5 处);WRITING_PROMPT 与 task_text_quality 原文 diff 为零(搬运不改写)。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py
