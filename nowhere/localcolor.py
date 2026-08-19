@@ -13,18 +13,49 @@ from __future__ import annotations
 import json
 import pathlib
 import random
+import sys
 
 from nowhere import baked
 
-_DATA = pathlib.Path(__file__).resolve().parent / "data" / "localcolor.json"
+_DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
+_DATA = _DATA_DIR / "localcolor.json"
+_REGIONAL_FILES = [
+    "localcolor_china.json",
+    "localcolor_japan_korea_sea.json",
+    "localcolor_americas_africa_oceania.json",
+]
 
 _color: dict | None = None
 
 
 def _load() -> dict:
     global _color
-    if _color is None:
-        _color = json.loads(_DATA.read_text(encoding="utf-8")) if _DATA.exists() else {}
+    if _color is not None:
+        return _color
+
+    base = json.loads(_DATA.read_text(encoding="utf-8")) if _DATA.exists() else {}
+    main_count = len(base)
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    print(f"[localcolor] main: {main_count} places", flush=True)
+
+    for fname in _REGIONAL_FILES:
+        p = _DATA_DIR / fname
+        if not p.exists():
+            continue
+        regional = json.loads(p.read_text(encoding="utf-8"))
+        added = 0
+        for k, v in regional.items():
+            if k not in base:
+                base[k] = v
+                added += 1
+        print(f"[localcolor] {fname}: {len(regional)} total, {added} new merged", flush=True)
+
+    _color = base
+    print(f"[localcolor] merged total: {len(_color)} places", flush=True)
     return _color
 
 

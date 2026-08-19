@@ -81,7 +81,7 @@ def _region_for(biome: str, lat: float, lon: float) -> str:
     if lat > 60 or lat < -60:
         return "polar"
 
-    if -35 <= lat <= 37 and -20 <= lon <= 55:
+    if -35 <= lat <= 32 and -20 <= lon <= 55:
         return "africa"
 
     if 0 <= lat <= 55 and 60 <= lon <= 150:
@@ -92,8 +92,6 @@ def _region_for(biome: str, lat: float, lon: float) -> str:
 
     # Oceania (Australia, NZ, Pacific)
     if -50 <= lat <= 0 and 110 <= lon <= 180:
-        return "oceania"
-    if -48 <= lat <= -10 and 160 <= lon <= 180:
         return "oceania"
 
     if 35 <= lat <= 72 and -15 <= lon <= 40:

@@ -99,6 +99,8 @@ def food_items(country_code: str | None, lat: float = 0, lon: float = 0) -> list
     if not country_code:
         return []
     items = _food.get(country_code, [])
+    # 过滤掉 zh 为空的条目——英文菜名不该进中文散文
+    items = [i for i in items if i.get("zh", "").strip()]
     # 中国食物按地区过滤
     if country_code == "CN" and lat != 0:
         region = _get_cn_region(lat, lon)

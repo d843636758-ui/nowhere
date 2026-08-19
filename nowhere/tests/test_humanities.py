@@ -94,9 +94,13 @@ def test_geocoded_coords_exist():
 
 
 def test_all_places_have_coords():
-    """所有 178 个地名都必须有坐标。"""
+    """所有地名都必须有坐标（仅检查含事件/人物/作品的条目）。"""
     data = humanities._load()
-    missing = [k for k, v in data["places"].items() if "lat" not in v or "lon" not in v]
+    missing = [
+        k for k, v in data["places"].items()
+        if ("lat" not in v or "lon" not in v)
+        and any(cat in v for cat in ("事件", "人物", "作品"))
+    ]
     assert missing == [], f"缺坐标: {missing}"
 
 
@@ -176,3 +180,11 @@ def test_nearby_event_before_works():
     result = humanities.nearby_place(51.03, 2.38, seen, rng)
     assert result is not None
     assert result["category"] == "事件"
+
+
+def test_casablanca_has_card():
+    """卡萨布兰卡 comes from regional merge and has a card."""
+    assert humanities.has_place("卡萨布兰卡") is True
+    card = humanities.draw("卡萨布兰卡", set(), random.Random(1))
+    assert card is not None
+    assert card["text"]

@@ -14,8 +14,14 @@ import json
 import math
 import pathlib
 import random
+import sys
 
-_DATA = pathlib.Path(__file__).resolve().parent / "data" / "humanities.json"
+_DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
+_DATA = _DATA_DIR / "humanities.json"
+_REGIONAL_FILES = [
+    "humanities_films.json",
+    "humanities_historical.json",
+]
 
 _raw: dict | None = None
 _places: dict | None = None
@@ -24,10 +30,38 @@ _aliases: dict | None = None
 
 def _load() -> dict:
     global _raw, _places, _aliases
-    if _raw is None:
-        _raw = json.loads(_DATA.read_text(encoding="utf-8")) if _DATA.exists() else {}
-        _places = _raw.get("places", {})
-        _aliases = _raw.get("aliases", {})
+    if _raw is not None:
+        return _raw
+
+    _raw = json.loads(_DATA.read_text(encoding="utf-8")) if _DATA.exists() else {}
+    _places = _raw.get("places", {})
+    _aliases = _raw.get("aliases", {})
+    main_count = len(_places)
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    print(f"[humanities] main: {main_count} places", flush=True)
+
+    for fname in _REGIONAL_FILES:
+        p = _DATA_DIR / fname
+        if not p.exists():
+            continue
+        regional = json.loads(p.read_text(encoding="utf-8"))
+        # regional files may be flat {place: data} or nested {places: {...}}
+        if "places" in regional and isinstance(regional["places"], dict):
+            entries = regional["places"]
+        else:
+            entries = regional
+        added = 0
+        for k, v in entries.items():
+            if k not in _places:
+                _places[k] = v
+                added += 1
+        print(f"[humanities] {fname}: {len(entries)} total, {added} new merged", flush=True)
+
+    print(f"[humanities] merged total: {len(_places)} places", flush=True)
     return _raw
 
 

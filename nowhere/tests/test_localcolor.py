@@ -38,3 +38,11 @@ def test_rhythm_event_hours():
     # 深夜 3 点无节律
     assert localcolor.rhythm_event("喀什", 3, random.Random(1)) is None
     assert localcolor.rhythm_event("不存在的地方", 12, random.Random(1)) is None
+
+
+def test_nanjing_from_regional():
+    """南京 comes from regional merge — has_place True and can draw a card."""
+    assert localcolor.has_place("南京") is True
+    card = localcolor.draw("南京", set(), random.Random(1))
+    assert card is not None
+    assert card["text"]

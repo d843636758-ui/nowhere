@@ -8,7 +8,7 @@ import sys
 import httpx
 import pytest
 
-from nowhere import art, knowledge, life
+from nowhere import art, encounters, knowledge, life
 
 # asyncio.to_thread + ProactorEventLoop hangs on Windows
 _win32_skip = pytest.mark.skipif(sys.platform == "win32", reason="asyncio.to_thread hangs on Windows")
@@ -270,3 +270,24 @@ async def test_knowledge_zim_file_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(knowledge, "_zim", None)
     monkeypatch.setattr(knowledge, "_ZIM_PATH", tmp_path / "nonexistent.zim")
     assert await knowledge.about(35.36, 138.73, "富士山") is None
+
+
+# ── encounters._region_for ─────────────────────────────────────────
+
+def test_antalya_maps_to_asia():
+    """Antalya (36.89°N, 30.71°E) should be in the 'asia' pool, not 'africa'."""
+    # Before fix: lat<=37 captured Antalya into africa
+    region = encounters._region_for("urban", 36.89, 30.71)
+    assert region == "asia"
+
+
+def test_north_africa_below32_still_africa():
+    """Sub-Saharan Africa (e.g. Lagos 6.5°N) still maps to africa."""
+    region = encounters._region_for("urban", 6.5, 3.4)
+    assert region == "africa"
+
+
+def test_mediterranean_coast_excluded_from_africa():
+    """Mediterranean coast at lat>32 (e.g. Tunis 36.8°N) should not be africa."""
+    region = encounters._region_for("urban", 36.8, 10.2)
+    assert region != "africa"

@@ -178,15 +178,10 @@ def _km(a: tuple[float, float], b: tuple[float, float]) -> float:
 
 
 def _last_env_surface() -> str:
-    """Read ``surface`` from ``_state.last_env`` regardless of write format.
+    """Read ``surface`` from ``_state.last_env``.
 
-    Two writers exist:
-    * ``_gather_env_cached`` writes top-level: ``{elevation, surface, ...}``
-    * ``walk_impl`` / ``look_around_impl`` / ``wait_impl`` write nested:
-      ``{terrain: {elevation, surface}, ...}``
-
-    Callers used to read only the nested path; when last_env came from the
-    cache miss they got ``""``.  This helper returns whichever shape was used.
+    Current code always writes flat format.  Old saved journeys may still have
+    nested ``terrain`` key — both are handled for backward compatibility.
     """
     env = _state.last_env or {}
     nested = env.get("terrain")
@@ -196,11 +191,10 @@ def _last_env_surface() -> str:
 
 
 def _last_env_terrain_dict() -> dict:
-    """Return ``_state.last_env['terrain']`` (or a synthesized equivalent).
+    """Return terrain dict from ``_state.last_env``.
 
-    When ``last_env`` is in the top-level shape (``{elevation, surface}``),
-    wrap it as ``{elevation, surface}`` so ``salience`` callers that read
-    ``prev["terrain"]["elevation"]`` keep working.
+    Current code always writes flat format.  Old saved journeys may still have
+    nested ``terrain`` key — both are handled for backward compatibility.
     """
     env = _state.last_env or {}
     nested = env.get("terrain")
@@ -415,9 +409,7 @@ def _pick_discovery(rng: random.Random) -> str:
     # Filter out scenes that don't match the current biome
     biome = _state.biome or ""
     surface = _last_env_surface()
-    # last_env is nested: {"terrain": {"elevation": ...}, ...}
-    _terrain_env = (_state.last_env or {}).get("terrain", {})
-    elev = _terrain_env.get("elevation", 0) if isinstance(_terrain_env, dict) else 0
+    elev = (_state.last_env or {}).get("elevation", 0)
 
     # Water scenes are inappropriate in deserts and dry areas
     water_keywords = ["瀑布", "溪", "河", "湖", "海", "水帘", "湿地", "溪水"]
@@ -1894,14 +1886,9 @@ async def walk_to_impl(place: str) -> dict:
     steps = 0
     total_km = 0.0
     max_steps = max(3, min(10, int(dist / 5) + 1))
-    # last_env 在 walk_impl/look_around_impl/wait_impl 里写成嵌套:
-    #   {"weather": ..., "terrain": {"elevation", "surface"}, "sky": ...}
-    # _gather_env_cached 写顶层格式 ({elevation, surface, sky, ...})
-    # 两者都支持 → 优先 terrain.surface,fallback 顶层 surface。
+    # last_env is always flat format: {elevation, surface, sky, weather, ...}
     last_env = _state.last_env or {}
-    last_surface = (
-        last_env.get("terrain", {}).get("surface")
-        or last_env.get("surface", "")
+    last_surface = last_env.get("surface", "")
     )
     terrain_changes = 0
 
@@ -1979,8 +1966,7 @@ async def walk_to_impl(place: str) -> dict:
         arrived = False
 
     # ── 更新状态 ─────────────────────────────────────────────────────
-    # Advance simulated time: ~1 hour per 5km walking
-    _state.elapsed_hours += total_km / 5.0
+    # NOTE: time accumulation is handled inside walk.step() per step — do NOT add here.
     now = _state.now()
     lat, lon = _state.pos
     env, _ = await _gather_env_cached(lat, lon, now)
