@@ -196,7 +196,7 @@ def check_footprints(
     """Check if we're walking through another's recent footprints.
 
     Returns a footprint text line or None.
-    - 3km radius, 24h window
+    - 3km radius, 24h window for active; any time for archived
     - 15% chance
     - First encounter: anonymous; 3rd+ with same person: name them
     """
@@ -206,10 +206,13 @@ def check_footprints(
         return None
 
     data = _load_json(_travelers_path())
+    # Also include archived travelers (their footprints persist)
+    archive = _load_json(_archive_path())
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=24)
 
     candidates: list[tuple[str, dict, float]] = []
+    # Check active travelers (24h window)
     for name, entry in data.items():
         if name == my_name:
             continue
@@ -229,6 +232,15 @@ def check_footprints(
             if dist <= 3.0:
                 candidates.append((name, fp, dist))
                 break  # one match per traveler is enough
+    # Check archived travelers (no time cutoff — old footprints still visible)
+    for name, entry in archive.items():
+        if name == my_name:
+            continue
+        for fp in entry.get("footprints", []):
+            dist = _km((lat, lon), (fp["lat"], fp["lon"]))
+            if dist <= 3.0:
+                candidates.append((name, fp, dist))
+                break
 
     if not candidates:
         return None

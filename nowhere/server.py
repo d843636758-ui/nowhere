@@ -1544,6 +1544,9 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     if _state.pos is None:
         return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
 
+    # Reset per-walk people encounter flag
+    _state.person_encountered_this_walk = False
+
     # ── 1. Parse direction & step ────────────────────────────────────
     bearing, semantic, direction_invalid = _parse_bearing(direction)
     step_result = walk_mod.step(_state, bearing, semantic, distance_km)
