@@ -32,7 +32,7 @@ _BIOME_TAGS_CACHE: dict[str, list[set[str]]] = {}
 
 # Valid biome tags used in scene files
 _VALID_BIOME_TAGS: set[str] = {
-    "#河", "#湖", "#码头", "#海", "#瀑", "#溪",
+    "#河", "#湖", "#码头", "#海", "#瀑", "#溪", "#江",
     "#城", "#林", "#漠", "#山", "#极",
 }
 
@@ -977,20 +977,52 @@ def _scene_for_kind(kind: str, payload: dict, rng: random.Random,
     return rng.choice(pool)
 
 
-def compose(sections: list[str], rng: random.Random) -> str:
+def _normalize_prose(text: str) -> str:
+    """标点规整: 补缺失句号、全半角统一、连续句号压一、多余空格压掉。
+
+    - 缺失句号: 前段尾字是中文字符且后段开头非标点非中文字符 → 补"。"
+    - 全半角统一: 英文逗号/句号/问号/感叹号在中文语境转全角
+    - 连续句号压成一个
+    - 多余空格压掉
+    """
+    if not text:
+        return text
+    # Half-width → full-width in Chinese context (letter/digit before, Chinese after)
+    text = re.sub(r'(?<=[一-鿿A-Za-z]),(?=[一-鿿])', '，', text)
+    text = re.sub(r'(?<=[一-鿿A-Za-z])\.(?=[一-鿿])', '。', text)
+    text = re.sub(r'(?<=[一-鿿A-Za-z])\?(?=[一-鿿])', '？', text)
+    text = re.sub(r'(?<=[一-鿿A-Za-z])!(?=[一-鿿])', '！', text)
+    # Missing period: Chinese char followed by non-punctuation non-Chinese char
+    text = re.sub(r'(?<=[一-鿿])(?=[^一-鿿　-〿＀-￯\s.,;:!?。，；：！？\-\[\]【】「」""''()（）])', '。', text)
+    # Consecutive periods → one
+    text = re.sub(r'。{2,}', '。', text)
+    # Extra spaces
+    text = re.sub(r'[ \t]+', ' ', text).strip()
+    return text
+
+
+# Walk-specific transition phrases — only for walk sections
+_WALK_TRANSITIONS: list[str] = ["走着走着,", "又走了一段,"]
+
+
+def compose(sections: list[str], rng: random.Random, section_type: str = "walk") -> str:
     """把渲染好的段落拼成一份身体报告。段落间给过渡,但不抢戏。
 
     - 空位占两个, "无过渡"更常见, 减少机械感
     - 同一条报告内已用过的过渡词不重复
     - 以"你"开头的动作句只用动作类过渡("同时,"/"走着走着,"),
       避免"远处,你转身往北走"这种场景词修饰动作的错配
+    - section_type: "walk" 允许走着走着等转移句; "establish" 禁入转移句
     """
     sections = [s for s in sections if s and s.strip()]
     if not sections:
         return ""
 
-    transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,", "走着走着,"]
-    action_transitions = ["", "同时,", "走着走着,"]
+    all_transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,"]
+    action_transitions = ["", "同时,"]
+    if section_type == "walk":
+        all_transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,", "走着走着,"]
+        action_transitions = ["", "同时,", "走着走着,"]
 
     parts: list[str] = []
     used: set[str] = set()
@@ -1001,7 +1033,7 @@ def compose(sections: list[str], rng: random.Random) -> str:
         if s.startswith("你"):
             pool = [t for t in action_transitions if t == "" or t not in used]
         else:
-            pool = [t for t in transitions if t == "" or t not in used]
+            pool = [t for t in all_transitions if t == "" or t not in used]
         if not pool:
             pool = [""]
         t = _pick(pool, rng)
@@ -1009,7 +1041,7 @@ def compose(sections: list[str], rng: random.Random) -> str:
             used.add(t)
         parts.append(t + s)
 
-    return "".join(parts)
+    return _normalize_prose("".join(parts))
 
 
 def sanity_check(text: str, env: dict) -> str:
@@ -1868,13 +1900,13 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
         # Biome filter: only keep scenes whose tags match current biome
         if biome:
             _BIOME_COMPAT: dict[str, set[str]] = {
-                "tundra":   {"#河", "#瀑", "#溪", "#湖"},
-                "desert":   {"#河", "#瀑", "#溪", "#湖"},
-                "coast":    {"#河", "#瀑", "#溪", "#湖", "#码头", "#海"},
-                "mountain": {"#河", "#瀑", "#溪", "#湖"},
-                "rainforest": {"#河", "#瀑", "#溪", "#湖"},
-                "grassland":  {"#河", "#瀑", "#溪", "#湖"},
-                "city":     {"#河", "#瀑", "#溪", "#湖", "#码头"},
+                "tundra":   {"#河", "#瀑", "#溪", "#湖", "#江"},
+                "desert":   {"#河", "#瀑", "#溪", "#湖", "#江"},
+                "coast":    {"#河", "#瀑", "#溪", "#湖", "#码头", "#海", "#江"},
+                "mountain": {"#河", "#瀑", "#溪", "#湖", "#江"},
+                "rainforest": {"#河", "#瀑", "#溪", "#湖", "#江"},
+                "grassland":  {"#河", "#瀑", "#溪", "#湖", "#江"},
+                "city":     {"#河", "#瀑", "#溪", "#湖", "#码头", "#江"},
             }
             allowed = _BIOME_COMPAT.get(biome, set())
             if allowed:

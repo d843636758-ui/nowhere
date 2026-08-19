@@ -379,6 +379,164 @@ def _find_nearest_water_feature(name: str, lat: float, lon: float) -> dict | Non
     return best
 
 
+def _offline_water_nearby(lat: float, lon: float, radius_km: float = 50) -> list[dict]:
+    """Look up offline water features near (lat, lon).
+
+    Returns list sorted by distance, each entry has name, type, distance_km,
+    bearing, note, label.
+    """
+    return hydrology.offline_water_nearby(lat, lon, radius_km=radius_km)
+
+
+def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
+    """Find a specific river segment from offline data.
+
+    segment_hint: e.g. "上海段", "入海口", "三峡段". Empty = scenic default.
+    Returns {"lat": float, "lon": float, "segment_name": str} or None.
+    """
+    import json
+    import pathlib as _pathlib
+
+    fp = _pathlib.Path(__file__).resolve().parent / "data" / "water_features_offline.json"
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    entries = data.get("entries", [])
+    hint_lower = segment_hint.lower() if segment_hint else ""
+
+    best = None
+    best_score = -1
+
+    for entry in entries:
+        ename = entry.get("name", "")
+        note = (entry.get("note") or "").lower()
+
+        # Match the base river name
+        if name not in ename and ename not in name:
+            continue
+
+        if segment_hint:
+            # Must match the segment hint in note
+            if hint_lower not in note:
+                continue
+            # Score: longer note match = better
+            score = len(note)
+        else:
+            # No hint: prefer scenic segments (三峡, Gorges, etc.)
+            scenic = any(s in note for s in ("三峡", "gorge", "scenic", "宜昌"))
+            score = 100 if scenic else 0
+
+        if score > best_score:
+            best_score = score
+            best = {
+                "lat": entry.get("lat", 30.7),
+                "lon": entry.get("lon", 111.0),
+                "segment_name": ename + (" " + entry["note"] if entry.get("note") else ""),
+            }
+
+    return best
+
+
+def _compute_river_direction(water_features: list[dict], lat: float, lon: float) -> tuple[float, float] | None:
+    """Compute approximate river flow direction from consecutive offline segments.
+
+    Returns (dx, dy) unit vector of downstream direction, or None.
+    """
+    # Collect names of nearby rivers
+    river_names = set()
+    for f in water_features:
+        if f.get("type") == "river":
+            river_names.add(f.get("name", ""))
+    if not river_names:
+        return None
+
+    import json
+    import pathlib as _pathlib
+    fp = _pathlib.Path(__file__).resolve().parent / "data" / "water_features_offline.json"
+    if not fp.exists():
+        return None
+    try:
+        data = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    # Find two closest consecutive segments of the same river
+    for rname in river_names:
+        segs = []
+        for entry in data.get("entries", []):
+            if entry.get("name") != rname:
+                continue
+            elat = entry.get("lat", 0)
+            elon = entry.get("lon", 0)
+            d = _km((lat, lon), (elat, elon))
+            segs.append((d, elat, elon))
+        segs.sort()
+        if len(segs) >= 2:
+            _, lat1, lon1 = segs[0]
+            _, lat2, lon2 = segs[1]
+            dx = lon2 - lon1
+            dy = lat2 - lat1
+            mag = math.sqrt(dx * dx + dy * dy)
+            if mag > 0:
+                return (dx / mag, dy / mag)
+    return None
+
+
+def _river_alignment_text(
+    walk_bearing_deg: float | None,
+    river_dir: tuple[float, float] | None,
+    rng: random.Random,
+) -> str:
+    """Generate narrative text for walking along/across a river.
+
+    walk_bearing_deg: walking direction in degrees (0=N, 90=E).
+    river_dir: (dx, dy) unit vector of downstream direction.
+    Returns narrative text or empty string.
+    """
+    if walk_bearing_deg is None or river_dir is None:
+        return ""
+
+    # Convert walking bearing to unit vector
+    walk_rad = math.radians(walk_bearing_deg)
+    walk_dx = math.sin(walk_rad)
+    walk_dy = math.cos(walk_rad)
+
+    # Dot product with river direction
+    dot = walk_dx * river_dir[0] + walk_dy * river_dir[1]
+
+    if abs(dot) > 0.7:
+        # Walking along river
+        if dot > 0:
+            variants = [
+                "江水和你一个方向,它走得比你稳。",
+                "你顺着江走。水声一直在右边,不远不近。",
+                "你和江往同一个方向去。它比你快,但你不在乎。",
+                "沿江走,水声是你的节拍器。不急。",
+            ]
+        else:
+            variants = [
+                "你逆着江走。水声迎面过来,一步一步。",
+                "江从你对面来。你走一步,它推一步。",
+                "你和江对着走。它不停,你也不停。",
+                "逆流。风从上游吹下来,带着水汽。",
+            ]
+        return rng.choice(variants)
+    elif abs(dot) < 0.3:
+        # Walking across river
+        variants = [
+            "你横着江的走向走。水声从侧面流过。",
+            "你垂直于江面走。每走一步,水声换个方位。",
+            "横渡的方向。江在你左边,又到了右边。",
+        ]
+        return rng.choice(variants)
+
+    return ""
+
+
 # ── Walk discovery system ───────────────────────────────────────────
 
 _DISCOVERY_CACHE: list[str] | None = None
@@ -399,15 +557,14 @@ _SURFACE_DESC_SERVER: dict[str, str] = {
 
 
 def _load_discovery_scenes() -> list[str]:
-    """Load walk discovery scenes from scene_walk_discovery.txt."""
+    """Load walk discovery scenes from scene_walk_discovery.txt.
+
+    Uses describe._load_scenes which strips biome tags (#林 #山 etc.)
+    from line starts for backward-compatible rendering.
+    """
     global _DISCOVERY_CACHE
     if _DISCOVERY_CACHE is None:
-        fp = describe._SCENE_DIR / "scene_walk_discovery.txt"
-        if fp.exists():
-            lines = [l.strip() for l in fp.read_text(encoding="utf-8").splitlines() if l.strip()]
-            _DISCOVERY_CACHE = lines
-        else:
-            _DISCOVERY_CACHE = []
+        _DISCOVERY_CACHE = describe._load_scenes("walk_discovery")
     return _DISCOVERY_CACHE
 
 
@@ -428,32 +585,69 @@ def _terrain_transition_text(
     return rng.choice(transitions)
 
 
+_SURFACE_TO_DISCOVERY_BIOME: dict[str, str] = {
+    "forest": "forest", "grass": "grassland", "sand": "desert",
+    "bare": "desert", "rock": "mountain", "snow": "tundra",
+    "ice": "tundra", "water_ocean": "ocean", "water_fresh": "water",
+    "urban": "urban", "wetland": "water",
+}
+
+# Map biome names to discovery tag sets
+_BIOME_TO_DISCOVERY_TAGS: dict[str, set[str]] = {
+    "forest": {"#林"}, "grassland": {"#林"}, "rainforest": {"#林"},
+    "desert": {"#漠"}, "tundra": {"#极"},
+    "mountain": {"#山"}, "coast": {"#海"}, "island": {"#海"},
+    "city": {"#城"}, "urban": {"#城"},
+    "volcano": {"#山"},
+}
+
+
 def _pick_discovery(rng: random.Random) -> str:
-    """Pick a random discovery scene line, filtered by biome and altitude."""
+    """Pick a random discovery scene line, filtered by biome tags and altitude.
+
+    Uses biome tags from scene_walk_discovery.txt for filtering.
+    Falls back to surface-to-biome mapping if biome is not set.
+    """
     pool = _load_discovery_scenes()
     if not pool:
         return ""
 
-    # Filter out scenes that don't match the current biome
     biome = _state.biome or ""
     surface = _last_env_surface()
     elev = (_state.last_env or {}).get("elevation", 0)
 
-    # Water scenes are inappropriate in deserts and dry areas
+    # Determine target biome from biome or surface mapping
+    target_biome = biome
+    if not target_biome and surface:
+        target_biome = _SURFACE_TO_DISCOVERY_BIOME.get(surface, "")
+
+    # Tag-based filtering: prefer scenes matching current biome
+    tags_list = describe._BIOME_TAGS_CACHE.get("walk_discovery", [])
+    if tags_list and len(tags_list) == len(pool) and target_biome:
+        target_tags = _BIOME_TO_DISCOVERY_TAGS.get(target_biome, set())
+        if target_tags:
+            # Priority: scenes with matching tags
+            matched = [(s, t) for s, t in zip(pool, tags_list) if t & target_tags]
+            untagged = [(s, t) for s, t in zip(pool, tags_list) if not t]
+            if matched:
+                # 70% chance to use matched, 30% to use untagged (universal fallback)
+                if rng.random() < 0.7 or not untagged:
+                    pool = [s for s, _ in matched]
+                else:
+                    pool = [s for s, _ in untagged]
+
+    # Keyword-based fallback filtering for edge cases
     water_keywords = ["瀑布", "溪", "河", "湖", "海", "水帘", "湿地", "溪水"]
     if biome in ("desert",) or surface in ("sand", "bare"):
         pool = [s for s in pool if not any(k in s for k in water_keywords)]
 
-    # Ice/snow scenes are inappropriate in hot/desert areas
     ice_keywords = ["冰", "雪", "冻", "霜", "冰湖", "冰面"]
     if biome in ("desert", "rainforest") or surface in ("sand", "bare"):
         pool = [s for s in pool if not any(k in s for k in ice_keywords)]
 
-    # Sea scenes are inappropriate in landlocked areas
     if biome not in ("coast", "island"):
         pool = [s for s in pool if "海边" not in s and "灯塔" not in s]
 
-    # High altitude (>3000m): filter out urban/lowland scenes
     if elev > 3000:
         high_altitude_bad = ["公园", "湖面", "鸭子", "水泥地", "人行道", "路灯", "便利店", "地铁", "小区"]
         pool = [s for s in pool if not any(k in s for k in high_altitude_bad)]
@@ -1012,7 +1206,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     if marine_text:
         sections.append(marine_text)
 
-    prose = describe.compose(sections, _rng)
+    prose = describe.compose(sections, _rng, section_type="establish")
     _now = _state.now()
     _month = _now.month if _now else None
     prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else ""})
@@ -1031,6 +1225,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         prose += f"\n（旁观者可以在这里看你走路：http://localhost:{_web_port}）"
         _web_url_announced = True
 
+    prose = describe._normalize_prose(prose)
     _state.last_text = prose
     _record_footprint("land", prose)
 
@@ -1451,6 +1646,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                 _state.souvenir = souvenir
                 prose += f"\n{ souvenir['desc']}"
 
+    prose = describe._normalize_prose(prose)
     _state.last_text = prose
     _record_footprint("walk", prose)
     _state.save()
@@ -1663,11 +1859,12 @@ async def look_around_impl() -> dict:
     now = _state.now()
     sections: list[str] = []
 
-    # ── 1. Start: direction + movement ──────────────────────────────
+    # ── 1. Start: direction + static observation ───────────────────
     directions = ["东", "南", "西", "北", "东北", "东南", "西北", "西南"]
     direction = _rng.choice(directions)
-    distance = _rng.randint(100, 500)
-    sections.append(f"你往{direction}走了{distance}米。")
+    _LOOK_STATIC_VERBS = ["目光投向", "视线落在", "你看向", "你望向", "你面朝"]
+    verb = _rng.choice(_LOOK_STATIC_VERBS)
+    sections.append(f"{verb}{direction}方。")
 
     # ── 2. Local color (from localcolor.json / baked) ───────────────
     local_hour = None
@@ -1852,6 +2049,7 @@ async def wait_impl(hours: float = 1.0) -> dict:
             sections.append("时间从身上流过去。世界没怎么变。你还在原地。")
 
         text = "\n".join(sections)
+        text = describe._normalize_prose(text)
 
     # Update state
     _state.last_env = {
@@ -2070,6 +2268,7 @@ async def walk_to_impl(place: str) -> dict:
     _state.last_elevation = env.get("elevation", 0)
 
     text = "\n".join(lines)
+    text = describe._normalize_prose(text)
     _state.last_text = text
     _record_footprint("walk_to", text)
     _state.save()
