@@ -83,6 +83,7 @@ def save_current(state: WorldState) -> None:
 
     if existing:
         existing["last_active"] = now_iso
+        existing["departed_at"] = now_iso
         existing["steps"] = len(state.path)
         existing["last_text"] = (state.last_text or "")[:50]
     else:
@@ -91,6 +92,7 @@ def save_current(state: WorldState) -> None:
             "place_name": place,
             "landed_at": state.landed_at.isoformat() if state.landed_at else now_iso,
             "last_active": now_iso,
+            "departed_at": now_iso,
             "steps": len(state.path),
             "last_text": (state.last_text or "")[:50],
         })
@@ -125,6 +127,25 @@ def switch(slug_or_place: str) -> WorldState | None:
     for j in index["journeys"]:
         if slug_or_lower in j.get("place_name", "").lower():
             return _load_journey(j["slug"], index)
+
+    return None
+
+
+def get_journey_meta(slug_or_place: str) -> dict | None:
+    """Return index metadata for a journey, or None if not found."""
+    index = _load_index()
+    target = _slug(slug_or_place)
+
+    # Try exact slug match first
+    for j in index["journeys"]:
+        if j["slug"] == target:
+            return j
+
+    # Try fuzzy match (place_name contains query)
+    slug_or_lower = slug_or_place.strip().lower()
+    for j in index["journeys"]:
+        if slug_or_lower in j.get("place_name", "").lower():
+            return j
 
     return None
 

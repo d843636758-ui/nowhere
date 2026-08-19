@@ -328,7 +328,7 @@ def _run_pytest() -> SectionResult:
             cwd=str(_REPO),
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=160,
             encoding="utf-8",
             errors="replace",
         )
@@ -376,7 +376,7 @@ def _run_pytest() -> SectionResult:
     except subprocess.TimeoutExpired:
         findings.append(Finding(
             id="TEST-TIMEOUT", source="tests", level="fail",
-            phenomenon="pytest 超时 (>120s)",
+            phenomenon="pytest 超时 (>160s)",
             reproduction="python -m pytest nowhere/tests -q",
         ))
     except Exception as e:

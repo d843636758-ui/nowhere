@@ -531,7 +531,7 @@
   - URL: https://www.crtv.cm/radio/stream
 - [实锤] **All India Radio**: <urlopen error [Errno 11001] getaddrinfo failed>
   - URL: https://airnewsenglish.akamaized.net/hls/live/2018529/airnewsenglish/english/playlist.m3u8
-- [实锤] **Radio Jordan**: HTTP 404
+- [实锤] **Radio Jordan**: <urlopen error The handshake operation timed out>
   - URL: https://www.jrtv.gov.jo/radio/stream
 - [实锤] **Dubai FM**: <urlopen error [Errno 11001] getaddrinfo failed>
   - URL: https://dubai1016fm.com/stream
@@ -625,7 +625,7 @@
   - URL: https://stream.pbc.gov.pk/fm101
 - [实锤] **Radio Pakistan**: HTTP 403
   - URL: https://stream.pbc.gov.pk/radiopakistan
-- [实锤] **Bangladesh Betar**: <urlopen error The handshake operation timed out>
+- [实锤] **Bangladesh Betar**: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-
   - URL: https://www.betar.gov.bd/radio/stream
 - [实锤] **Radio Foorti**: <urlopen error [Errno 11001] getaddrinfo failed>
   - URL: https://stream.radiofoorti.com/radiofoorti
@@ -705,6 +705,9 @@
 | 6. 物种超分布 | 17 | 可疑 |
 | 7. 时代错 | 3 | 可疑 |
 | 8. AI编事实 | 72 | 人审 |
+| 9. 电台流腐烂 | 81 | 实锤 |
+| 10. 海上死寂 | 8 | 可疑 |
+| 11. 记忆膨胀 | 7 | 实锤 |
 
 ### 建议修复优先级
 
@@ -712,7 +715,10 @@
 2. **国家码边界** (实锤): food_by_country.json 的 DD(东德) 条目必须删; 574 条 zh 空串会导致英文菜名混入中文散文。
 3. **地名键漂移** (实锤): 凤凰/凤凰古城等重复键需合并; 索引与数据文件的键需对齐。
 4. **历法漂移** (实锤): 伊斯兰历节日的硬编码月份必须改用动态计算。
-5. **城市vs景区** (可疑): 景区卡需确认城市落点是否合理, 或调整落点坐标。
-6. **物种超分布** (可疑): 需人工二审, 部分可能是数据源本身的分布记录。
-7. **时代错** (人审): 部分可能是故意怀旧, 需人工判断哪些保留哪些删。
-8. **AI编事实** (人审): 需更完整的 ZIM 交叉验证, 当前样本量有限。
+5. **电台流腐烂** (实锤): 死亡流需替换或移除, 否则 listen 工具会返回无效地址。
+6. **记忆膨胀** (实锤): geocode._geocode_cache 无 TTL/eviction, 长时间运行会持续增长。
+7. **海上死寂** (可疑): 海洋位置仍保留沿海城市的 localcolor/humanities 内容, 需检查是否符合预期。
+8. **城市vs景区** (可疑): 景区卡需确认城市落点是否合理, 或调整落点坐标。
+9. **物种超分布** (可疑): 需人工二审, 部分可能是数据源本身的分布记录。
+10. **时代错** (人审): 部分可能是故意怀旧, 需人工判断哪些保留哪些删。
+11. **AI编事实** (人审): 需更完整的 ZIM 交叉验证, 当前样本量有限。

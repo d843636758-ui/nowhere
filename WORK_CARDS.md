@@ -363,6 +363,54 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
+# 走路引擎组(2026-08-20,旋复:"走路引擎很无聊,走几步就往回走";脑在长江实测5步实锤四病)
+
+## 卡37:河流意识(196 条离线水系接线,含长江 7 段)— 立刻可发
+
+只许改:nowhere/server.py、nowhere/hydrology.py、nowhere/describe.py、nowhere/tests/test_river.py(新建)
+
+背景:water_features_offline.json 有 196 条水系(长江 7 段:宜宾/重庆/三峡/武汉/九江/南京/入海口;珠江 5 段;漓江 2 段),旋复亲手分的段——但 walk 渲染把水文整个跳过(server.py 约1165 硬编码 water_features=[],注释"Overpass 被墙")。**走在长江上,看不见长江。**
+
+1. **离线水文接线**:walk/落地时用 water_features_offline.json 判"你在不在河边"(距某分段中心 < radius_km,server.py 里已有 _offline_water_nearby 的距离算法可复用);在河边 → 水文描写走离线分段(名称+类型),不再依赖 Overpass。原 Overpass 在线路径保留为增强(能通就细化),不通静默降级到离线——**不许再整段跳过**。
+2. **沿河叙事**:在河边且行走方向与河流走向夹角小(用前后两个分段中心算流向)→ 识别"顺流/逆流",walk 文本给一句(变体池 4 条:"江水和你一个方向,它走得比你稳。"/"你逆着水走,水声一直在耳朵边。");跨过流向(夹角大)→ "你横着江的走向走"或渡口意象。只在河流 3km 内生效,离开就淡出。
+3. **open_door("长江")分段感知**:special_places 的长江单点(30.7,111.0)扩为按分段就近落——to="长江"默认三峡段(风景段),to="长江 上游/入海口/南京段"可指定(匹配分段名/顺位);落地文本报段名("长江,三峡段")。
+4. **河边专属卡池**:scene_water_features.txt 增 8 句 #江 句(江雾/渡船/货轮/江滩卵石/汽笛,声口照 WRITING_PROMPT),只在河边渲染。
+5. test_river.py:落地"长江"→水文描写出现且分段正确;沿河走 3 步至少 1 次顺流/逆流句;离开 5km 后江意象消失;"长江 入海口"落到上海段。
+
+验收:新测试绿;长江实测 5 步每步都有江的存在感(卡37 报告贴 5 步原文)。
+
+---
+
+## 卡38:look_around 去"往回走"— 立刻可发,10 分钟的活
+
+只许改:nowhere/server.py、nowhere/tests/test_look_around.py(新建,或就近测试文件加)
+
+背景:server.py 约1502 硬编码"你往回走，回到了原来的地方。"——环视本来不移动位置,这句假装走了一圈又回来,且每次必出。旋复体感"走几步就说往回走了"的直接来源。
+
+1. 删掉该句。环视的收尾改为**不动身位的收束**(变体池 5 条,低频出现,40%概率不收尾直接停):"你看完了,收回目光。"/"风把刚才的声音又送了一遍。"/"你站了一会儿,没动。"
+2. look_around 期间不许有任何"移动"语义句(exploration 段固有文案里扫一遍,凡"走/迈/步"动词进 look_around 上下文的,换静态动词)。
+3. test:look_around 输出永不含"往回走/回到";两次 look_around 收尾句不同(seed 控制)。
+
+验收:新测试绿;连续 look_around 3 次输出贴报告。
+
+---
+
+## 卡39:walk 节奏去复读— 立刻可发
+
+只许改:nowhere/server.py、nowhere/describe.py、nowhere/tests/test_walk_rhythm.py(新建)
+
+背景(长江 5 步实测):每步都出"附近有电台在播。CRI Easy FM,music/news"(电台 sticky 每步重渲染)+"树根绊了一下,你没倒"(触觉池小)+"同时,"胶水词每段都当开头。
+
+1. **电台冷却**:radio 文案 N 步冷却(默认 5 步)+只在换台/信号变化时再提;同台复读改"电台还在,声音小了"式弱化句(变体 3 条)或干脆沉默。
+2. **触觉/嗅觉池扩容+冷却**:_TOUCH_BY_SURFACE 每面从 2-4 句扩到 6 句(新句照声口);同一句 10 步内不重出(recent 池,已有 recent_scenes 机制,接线到 touch/smell)。
+3. **"同时,"胶水**:compose 的连接词变体池扩(同时/这会儿/紧接着/没过多会儿/——直接句号另起),按 rng;同一段连接词不重复。
+4. **方向句只在变化时说**:narrative 已有 direction 追踪,walk 文本里"你继续往北走"这种每步句删掉,只在转向/第 3 步节奏点出一次。
+5. test_rhythm.py:固定 seed 走 10 步,统计:radio 句 ≤2 次、同一 touch 句不重复、"同时,"占比 <30%、方向句 ≤3 次。
+
+验收:新测试绿;长江 5 步重跑,复读感肉眼可见消失(报告贴前后对比)。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py

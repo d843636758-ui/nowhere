@@ -776,20 +776,40 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     global _state, _rng, _recent_salience_kinds
 
     # ── 0. Multi-journey: save current before switching ────────────────
+    farewell_text = ""
     if _state.pos is not None and not resume and to:
+        # Generate farewell before leaving
+        farewell_text = _generate_farewell(_state, _rng)
+        _state.journey_log.append({
+            "kind": "farewell",
+            "text": farewell_text,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+
+        # Save current journey (with farewell in log)
+        journeys.save_current(_state)
+
         # Check if destination matches an existing journey
         existing = journeys.switch(to)
         if existing is not None:
+            # Generate return text for the existing journey
+            meta = journeys.get_journey_meta(to)
+            return_text = _generate_return(existing, meta, _rng)
+
             _state = existing
             _rng = random.Random(int(os.environ["NOWHERE_SEED"])) if os.environ.get("NOWHERE_SEED") else random.Random()
             _recent_salience_kinds = set()
             place = _state.place_name or to
+
+            response_parts = [farewell_text]
+            if return_text:
+                response_parts.append(return_text)
+            response_parts.append(f"回到了{place}的旅程。上次你在{_state.last_text[:50] if _state.last_text else '走路'}。")
+
             return {
-                "text": f"回到了{place}的旅程。上次你在{_state.last_text[:50] if _state.last_text else '走路'}。",
+                "text": "\n".join(response_parts),
                 "data": {"position": {"lat": _state.pos[0], "lon": _state.pos[1]}, "resumed": True},
             }
-        # Save current journey before starting new one
-        journeys.save_current(_state)
 
     # ── 1. Locate / restore ────────────────────────────────────────────
     spot: dict | None = None
@@ -1029,6 +1049,10 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     _state.save()
 
     # ── 7. Return ────────────────────────────────────────────────────
+    # Prepend farewell text if we left a previous journey
+    if farewell_text:
+        prose = farewell_text + "\n" + prose
+
     return {
         "text": prose,
         "data": {
@@ -2184,6 +2208,83 @@ def _record_footprint(
     )
 
 
+# ── Farewell / Return helpers (card 27: peak-end) ────────────────────
+
+
+def _generate_farewell(state: state_mod.WorldState, rng: random.Random) -> str:
+    """Generate farewell text when leaving a journey.
+
+    Uses current env for a "last glimpse" snapshot, then appends a body
+    farewell sentence from the variant pool.
+    """
+    env = state.last_env or {}
+    weather = env.get("weather") or {}
+    sky = env.get("sky") or {}
+
+    parts: list[str] = []
+
+    # Last glimpse: weather snapshot
+    weather_text = weather.get("text", "")
+    if weather_text:
+        parts.append(f"此刻{weather_text}。")
+
+    # Farewell body from variant pool
+    phase = sky.get("phase", "day")
+    phase_desc = describe._TIME_LABELS.get(phase, "白天")
+    farewell_tmpl = rng.choice(describe._FAREWELL_VARIANTS)
+    farewell = farewell_tmpl.format(
+        place=state.place_name or "这里",
+        phase_desc=phase_desc,
+    )
+    parts.append(farewell)
+
+    return "".join(parts)
+
+
+def _generate_return(
+    state: state_mod.WorldState, meta: dict | None, rng: random.Random
+) -> str:
+    """Generate return text when coming back to a journey.
+
+    Calculates real-world elapsed time since departure and compares seasons.
+    Returns empty string if not enough time has passed for a meaningful note.
+    """
+    if not meta or not meta.get("departed_at"):
+        return ""
+
+    # Calculate real-world elapsed time
+    departed_at = datetime.fromisoformat(meta["departed_at"])
+    if departed_at.tzinfo is None:
+        departed_at = departed_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    elapsed = now - departed_at
+
+    # Only mention return if significant time has passed (> 1 hour)
+    if elapsed.total_seconds() < 3600:
+        return ""
+
+    # Calculate season change: old season from journey's simulated time,
+    # new season from real-world time (the world continued while you were away)
+    lat = state.pos[0] if state.pos else 0
+    old_time = state.now()
+    old_month = old_time.month if old_time else departed_at.month
+    new_month = now.month
+
+    old_season_zh = describe._SEASON_EN_TO_ZH.get(describe._season(old_month, lat), "")
+    new_season_zh = describe._SEASON_EN_TO_ZH.get(describe._season(new_month, lat), "")
+
+    # Mention season change if different
+    if old_season_zh and new_season_zh and old_season_zh != new_season_zh:
+        return_tmpl = rng.choice(describe._RETURN_VARIANTS)
+        return return_tmpl.format(old_season=old_season_zh, new_season=new_season_zh)
+
+    # Even if same season, mention elapsed time if > 1 day
+    if elapsed.days > 0:
+        return f"你离开了 {elapsed.days} 天。世界没有停。"
+
+    return ""
+
+
 def _poster_front_async(card: dict, lat: float, lon: float) -> None:
     """后台线程生成明信片正面海报。可选增强,没有 osmnx 就安静缺席。"""
     if not poster.available():
@@ -2421,18 +2522,38 @@ def switch_journey(name: str) -> dict:
     global _state, _rng, _recent_salience_kinds
     if not name.strip():
         return {"text": "给个地名。", "data": {"error": "empty_name"}}
-    # Save current before switching
+
+    farewell_text = ""
     if _state.pos is not None:
+        # Generate farewell before leaving
+        farewell_text = _generate_farewell(_state, _rng)
+        _state.journey_log.append({
+            "kind": "farewell",
+            "text": farewell_text,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
         journeys.save_current(_state)
+
     new_state = journeys.switch(name)
     if new_state is None:
         return {"text": f"找不到「{name}」的旅程。", "data": {"error": "not_found"}}
+
+    # Generate return text
+    meta = journeys.get_journey_meta(name)
+    return_text = _generate_return(new_state, meta, _rng)
+
     _state = new_state
     _rng = random.Random(int(os.environ["NOWHERE_SEED"])) if os.environ.get("NOWHERE_SEED") else random.Random()
     _recent_salience_kinds = set()
     place = _state.place_name or name
+
+    response_parts = [farewell_text]
+    if return_text:
+        response_parts.append(return_text)
+    response_parts.append(f"回到了{place}。你站在{_state.last_text[:50] if _state.last_text else '某个地方'}。")
+
     return {
-        "text": f"回到了{place}。你站在{_state.last_text[:50] if _state.last_text else '某个地方'}。",
+        "text": "\n".join(response_parts),
         "data": {"position": {"lat": _state.pos[0], "lon": _state.pos[1]}},
     }
 

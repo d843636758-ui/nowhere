@@ -23,10 +23,14 @@ def test_food_scene_partial_match():
 
 
 def test_food_scene_fallback():
-    """Unknown foods should fall back to template logic."""
+    """卡32: Unknown foods with no desc → None (no desc = no card)."""
     r = baked.render_food({"zh": "不存在的食物", "en": "Nonexistent"}, random.Random(1))
-    assert r  # Should still return something
-    assert "不存在的食物" in r
+    assert r is None  # 无 desc 且无场景匹配 → 不出卡
+
+    # But a food WITH desc should still render via template
+    r2 = baked.render_food({"zh": "不存在的食物", "en": "Nonexistent", "desc": "好吃的"}, random.Random(1))
+    assert r2 is not None
+    assert "不存在的食物" in r2
 
 
 def test_food_scene_count():
