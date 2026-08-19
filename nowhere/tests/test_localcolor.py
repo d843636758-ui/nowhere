@@ -50,12 +50,11 @@ def test_nanjing_from_regional():
 
 def test_handwritten_priority_over_baked():
     """卡32: 同地连抽到手写层空, 期间烘焙卡占比 <20%."""
-    # 先算喀什手写卡的 key 集合
-    entry = localcolor._load().get("喀什", {})
+    # 先算喀什手写卡的 key 集合 (Card layer)
     hw_keys: set[str] = set()
-    for cat in ("物产", "声音", "痕迹", "植被", "美食"):
-        for i in range(len(entry.get(cat, []))):
-            hw_keys.add(f"喀什/{cat}/{i}")
+    for c in localcolor._load():
+        if c.conditions.get("place") == "喀什" and c.meta.get("category") != "节律":
+            hw_keys.add(c.id)
 
     seen: set[str] = set()
     rng = random.Random(42)

@@ -594,6 +594,101 @@ _SKY_NIGHT_VARIANTS: list[str] = [
     "头顶是夜。{moon_str}{planet_str}{milky_str}{aurora_str}",
 ]
 
+# ── Card 14: Night navigation variants ───────────────────────────────
+_NIGHT_NAV_POLAR_LOW: list[str] = [     # lat 10-30
+    "北极星贴着地平线,低得快要碰到屋顶。",
+]
+_NIGHT_NAV_POLAR_MID: list[str] = [     # lat 30-50
+    "北极星在北边挂着,不高不低,认路的老伙计。",
+]
+_NIGHT_NAV_POLAR_HIGH: list[str] = [    # lat 50-66
+    "北极星几乎在头顶偏北一点,你仰着脖子看。",
+    "银河斜斜地过头顶,你顺着它看北。",
+]
+_NIGHT_NAV_POLAR_UNIVERSAL: list[str] = [  # any north lat > 10
+    "北边那颗不动的星,今晚格外稳。",
+    "星星密得像撒了一把盐,北极星是那颗不动的。",
+    "夜空干净,北极星在北边挂着,你认得它。",
+    "北斗的勺口指向北极星,你顺着看了一眼。",
+]
+_NIGHT_NAV_SOUTHERN: list[str] = [      # lat < -10
+    "南十字出来了,长臂指着南天极。",
+    "那颗不动的星看不见,但南十字在,南就有了。",
+    "四颗星钉成一个十字,你仰头数了两遍。",
+    "天顶的星转着圈,南十字是那个锚。",
+]
+_NIGHT_NAV_FULL_MOON: list[str] = [     # moon_phase > 0.8
+    "满月,影子清楚,不用看脚下。",
+    "月光把路照成灰白色,你走得比白天还稳。",
+    "这么大的月亮,城里的灯都输了。",
+]
+_NIGHT_NAV_NO_MOON: list[str] = [       # moon_phase < 0.2
+    "没月亮,黑得慢,你听声音走路。",
+    "脚踩在不知道什么东西上,软的,你没低头看。",
+    "这么黑,星反而多了,一颗一颗数得过来。",
+]
+_NIGHT_NAV_POLAR_NIGHT: list[str] = [   # |lat|>66 winter months
+    "太阳不上来,但雪把光存住了。",
+    "极夜,天是深蓝的,不是黑的。",
+    "月亮和星换着班,你永远不知道'现在几点'——只好一直走。",
+]
+
+
+def render_night_nav(
+    lat: float,
+    moon_phase: float,
+    sky_phase: str,
+    month: int,
+    rng: random.Random,
+) -> str | None:
+    """Night navigation sentence. Returns None if not applicable.
+
+    Selects based on latitude, moon phase, and polar night conditions.
+    Direction words always match actual astronomical bearing.
+    """
+    if sky_phase not in ("night", "nautical"):
+        return None
+
+    abs_lat = abs(lat)
+
+    # Polar night: |lat|>66 and winter months
+    is_polar_night = False
+    if abs_lat > 66:
+        if lat > 0 and month in (11, 12, 1, 2):
+            is_polar_night = True
+        elif lat < 0 and month in (5, 6, 7):
+            is_polar_night = True
+
+    if is_polar_night:
+        return rng.choice(_NIGHT_NAV_POLAR_NIGHT)
+
+    # Full moon (checked before hemisphere split)
+    if moon_phase > 0.8:
+        return rng.choice(_NIGHT_NAV_FULL_MOON)
+
+    # No moon
+    if moon_phase < 0.2:
+        return rng.choice(_NIGHT_NAV_NO_MOON)
+
+    # Northern hemisphere: polar star
+    if lat > 10:
+        pool = list(_NIGHT_NAV_POLAR_UNIVERSAL)
+        if 10 < lat <= 30:
+            pool.extend(_NIGHT_NAV_POLAR_LOW)
+        elif 30 < lat <= 50:
+            pool.extend(_NIGHT_NAV_POLAR_MID)
+        elif 50 < lat <= 66:
+            pool.extend(_NIGHT_NAV_POLAR_HIGH)
+        return rng.choice(pool)
+
+    # Southern hemisphere: Southern Cross
+    if lat < -10:
+        return rng.choice(_NIGHT_NAV_SOUTHERN)
+
+    # Near equator: polar star too low, Southern Cross too low
+    return None
+
+
 _SKY_DAY_VARIANTS: list[str] = [
     "太阳在 {sun_alt} 度,光落下来是直的。",
     "日头挂着,{sun_alt} 度。影子缩在脚边。",

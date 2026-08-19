@@ -9,11 +9,26 @@ from __future__ import annotations
 
 import random
 
+_INTENT_MAP: dict[str, dict[str, float]] = {
+    "孤独": {"life": 0.5, "radio": 0.5, "sky": 1.5, "terrain": 1.5, "weather": 1.5},
+    "安静": {"life": 0.5, "radio": 0.5, "sky": 1.5, "terrain": 1.5, "weather": 1.5},
+    "热闹": {"life": 1.5, "radio": 1.5, "water_features": 1.2, "sky": 0.7},
+    "人": {"life": 1.5, "radio": 1.5, "water_features": 1.2, "sky": 0.7},
+    "水": {"water": 1.5, "water_features": 1.5},
+    "海": {"water": 1.5, "water_features": 1.5},
+    "古老": {"humanities": 1.5},
+    "历史": {"humanities": 1.5},
+    "吃": {"localcolor": 2.0},
+    "美食": {"localcolor": 2.0},
+    "食物": {"localcolor": 2.0},
+}
+
 
 def rank(
     candidates: list[dict],
     rng: random.Random,
     recent_kinds: set[str] | None = None,
+    intent: str | None = None,
 ) -> list[dict]:
     """Rank candidates by salience and return the top 3.
 
@@ -49,6 +64,10 @@ def rank(
             + 0.3 * novelty
             + 0.2 * (1.0 - c["body_distance"])
         )
+        # Intent bias (Card 12)
+        if intent:
+            weights = _INTENT_MAP.get(intent, {})
+            score *= weights.get(c["kind"], 1.0)
         scored.append((score, rng.random(), c))
 
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)

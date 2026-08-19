@@ -4,6 +4,9 @@ The Met has 5000+ years of art from every continent.  We bias the search
 toward art that is *culturally relevant* to where the AI is standing,
 then layer mood on top.  A user in Kyoto sees Japanese prints; a user
 in Lagos sees West African sculpture; a user in Paris sees French painting.
+
+Note: Art cards are dynamic (API + local DB), not static card data.
+The unified Card schema in cards.py covers static card sources.
 """
 
 from __future__ import annotations

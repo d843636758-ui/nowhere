@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 from pathlib import Path
 
 
@@ -124,6 +125,22 @@ def seen_humanities() -> set[str]:
     """Load the global set of seen humanities card keys."""
     data = _load("seen_humanities.json")
     return set(data.get("keys", []))
+
+
+# ── Card 20: Odometer (global total distance across all journeys) ────
+
+def get_total_distance_km() -> float:
+    """Return the global total distance walked across all journeys."""
+    return float(_load("odometer.json").get("total_km", 0.0))
+
+
+def add_distance_km(km: float) -> float:
+    """Add km to the global odometer. Returns new total."""
+    data = _load("odometer.json")
+    total = float(data.get("total_km", 0.0)) + km
+    data["total_km"] = round(total, 3)
+    _dump("odometer.json", data)
+    return total
 
 
 def save_seen_humanities(keys: set[str]) -> None:
@@ -258,6 +275,46 @@ def save_travelers(data: dict) -> None:
     _dump("travelers.json", data)
 
 
+# ── 埋藏物品(Card 13: bury/find) ─────────────────────────────────
+
+_BURIED_CAP = 100
+
+
+def save_buried(entry: dict) -> None:
+    """埋一件东西。FIFO 100 上限。"""
+    data = _load("buried.json")
+    items = data.get("items", [])
+    items.append(entry)
+    data["items"] = items[-_BURIED_CAP:]
+    _dump("buried.json", data)
+
+
+def buried_items() -> list[dict]:
+    """全部埋藏物。"""
+    return _load("buried.json").get("items", [])
+
+
+def buried_nearby(lat: float, lon: float, radius_km: float = 3.0) -> list[dict]:
+    """3km 内的埋藏物。"""
+    import math
+    items = buried_items()
+    result = []
+    for item in items:
+        pos = item.get("pos")
+        if not pos or len(pos) < 2:
+            continue
+        dlat = pos[0] - lat
+        dlon = pos[1] - lon
+        if dlon > 180:
+            dlon -= 360
+        elif dlon < -180:
+            dlon += 360
+        d = math.sqrt((dlat * 111.0) ** 2 + (dlon * 111.0 * math.cos(math.radians(lat))) ** 2)
+        if d <= radius_km:
+            result.append(item)
+    return result
+
+
 # ── Journey footprints ─────────────────────────────────────────────────
 
 def journey_footprints() -> list[dict]:
@@ -293,3 +350,70 @@ def journey_footprints() -> list[dict]:
 
     items.sort(key=lambda item: item.get("at") or item.get("journey_at") or "", reverse=True)
     return items
+
+
+# ── Card 10: 痕迹链 — 世界在你离开后继续过日子 ─────────────────────
+
+_TRACES_DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
+_traces_cache: dict | None = None
+
+
+def _load_traces() -> dict:
+    """Load traces.json once and cache."""
+    global _traces_cache
+    if _traces_cache is not None:
+        return _traces_cache
+    fp = _TRACES_DATA_DIR / "traces.json"
+    if fp.exists():
+        _traces_cache = json.loads(fp.read_text(encoding="utf-8"))
+    else:
+        _traces_cache = {}
+    return _traces_cache
+
+
+def has_trace(place: str) -> bool:
+    """Check if a place has a trace chain."""
+    return place in _load_traces()
+
+
+def get_trace_stage(place: str) -> int:
+    """Get the current trace stage for a place. 0-indexed, default 0."""
+    data = _load("trace_stages.json")
+    return int(data.get(place, 0))
+
+
+def advance_trace_stage(place: str) -> int:
+    """Advance the trace stage for a place. Returns new stage."""
+    traces = _load_traces()
+    if place not in traces:
+        return 0
+    max_stage = len(traces[place]["stages"]) - 1
+    data = _load("trace_stages.json")
+    current = int(data.get(place, 0))
+    new_stage = min(current + 1, max_stage)
+    data[place] = new_stage
+    _dump("trace_stages.json", data)
+    return new_stage
+
+
+def get_trace_text(place: str) -> str | None:
+    """Get the trace text for the current stage of a place.
+
+    Returns the text and advances the stage.
+    Returns None if the place has no trace chain.
+    """
+    traces = _load_traces()
+    if place not in traces:
+        return None
+    stage = get_trace_stage(place)
+    stages = traces[place]["stages"]
+    if stage >= len(stages):
+        stage = len(stages) - 1
+    text = stages[stage]
+    advance_trace_stage(place)
+    return text
+
+
+def trace_stages() -> dict:
+    """Return all trace stage data (for inspection/testing)."""
+    return _load("trace_stages.json")

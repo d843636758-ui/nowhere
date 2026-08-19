@@ -71,6 +71,16 @@ class WorldState:
         self.errand: dict | None = None  # active errand {kind, ...}
         self.errand_letter_taken_this_journey: bool = False  # max 1 letter per journey
         self.errand_festival_mentioned_this_journey: bool = False  # max 1 festival wind per journey
+        self.intent: str | None = None  # Card 12: intent bias for salience/localcolor
+        # ── Card 16: blind door ────────────────────────────────────────
+        self.blind: bool = False  # blind mode: place name hidden
+        self.blind_clues: int = 0  # how many clues given during blind
+        # ── Card 17: door key ──────────────────────────────────────────
+        self.door_key: str | None = None  # deterministic key for door
+        # ── Card 18: drift cards ───────────────────────────────────────
+        self.drift_seen: list[str] = []  # seen drift card texts this journey
+        # ── Card 20: odometer ──────────────────────────────────────────
+        # (total_distance_km lives in placememory, global across journeys)
 
     def now(self) -> datetime | None:
         """Return the current simulated UTC time: landed_at + elapsed_hours."""
@@ -122,6 +132,11 @@ class WorldState:
             "errand": self.errand,
             "errand_letter_taken_this_journey": self.errand_letter_taken_this_journey,
             "errand_festival_mentioned_this_journey": self.errand_festival_mentioned_this_journey,
+            "intent": self.intent,
+            "blind": self.blind,
+            "blind_clues": self.blind_clues,
+            "door_key": self.door_key,
+            "drift_seen": self.drift_seen,
         }
 
     @classmethod
@@ -177,6 +192,11 @@ class WorldState:
         s.errand = data.get("errand")
         s.errand_letter_taken_this_journey = data.get("errand_letter_taken_this_journey", False)
         s.errand_festival_mentioned_this_journey = data.get("errand_festival_mentioned_this_journey", False)
+        s.blind = data.get("blind", False)
+        s.blind_clues = data.get("blind_clues", 0)
+        s.door_key = data.get("door_key")
+        s.drift_seen = data.get("drift_seen", [])
+        s.intent = data.get("intent")
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
             s.radio_pos = tuple(data["radio_pos"])

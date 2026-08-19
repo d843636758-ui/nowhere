@@ -9,6 +9,8 @@ from __future__ import annotations
 import pathlib
 import random
 
+from nowhere import cards as _cards
+
 _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 _ENCOUNTER_FILE = "encounters.txt"
 
@@ -150,3 +152,8 @@ def draw_encounter(
     if not candidates:
         return None
     return rng.choice(candidates)
+
+
+def card_pool() -> list[_cards.Card]:
+    """Return encounter data as Card objects (unified schema adapter)."""
+    return _cards.load_encounters(_DATA_DIR)

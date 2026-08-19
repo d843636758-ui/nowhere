@@ -15,55 +15,43 @@ import pathlib
 import random
 import sys
 
-from nowhere import baked
+from nowhere import baked, cards as _cards
 
 _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
-_DATA = _DATA_DIR / "localcolor.json"
-_REGIONAL_FILES = [
-    "localcolor_china.json",
-    "localcolor_japan_korea_sea.json",
-    "localcolor_americas_africa_oceania.json",
-]
 
-_color: dict | None = None
+_lc_cards: list[_cards.Card] | None = None
 
 
-def _load() -> dict:
-    global _color
-    if _color is not None:
-        return _color
-
-    base = json.loads(_DATA.read_text(encoding="utf-8")) if _DATA.exists() else {}
-    main_count = len(base)
+def _load() -> list[_cards.Card]:
+    """Load localcolor cards via the unified Card layer."""
+    global _lc_cards
+    if _lc_cards is not None:
+        return _lc_cards
 
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
         pass
-    print(f"[localcolor] main: {main_count} places", flush=True)
 
-    for fname in _REGIONAL_FILES:
-        p = _DATA_DIR / fname
-        if not p.exists():
-            continue
-        regional = json.loads(p.read_text(encoding="utf-8"))
-        added = 0
-        for k, v in regional.items():
-            if k not in base:
-                base[k] = v
-                added += 1
-        print(f"[localcolor] {fname}: {len(regional)} total, {added} new merged", flush=True)
+    _lc_cards = _cards.load_localcolor(_DATA_DIR)
 
-    _color = base
-    print(f"[localcolor] merged total: {len(_color)} places", flush=True)
-    return _color
+    # Count unique places
+    places = {c.conditions.get("place") for c in _lc_cards}
+    print(f"[localcolor] {len(_lc_cards)} cards from {len(places)} places", flush=True)
+
+    return _lc_cards
+
+
+def _places_set() -> set[str]:
+    """Get the set of place names that have localcolor cards."""
+    return {c.conditions.get("place") for c in _load() if c.conditions.get("place")}
 
 
 def has_place(place_name: str | None) -> bool:
     """手写层或烘焙层有货就算有这个地方。"""
     if not place_name:
         return False
-    return place_name in _load() or bool(baked.flora_items(place_name))
+    return place_name in _places_set() or bool(baked.flora_items(place_name))
 
 
 def draw(
@@ -72,6 +60,7 @@ def draw(
     rng: random.Random,
     local_hour: int | None = None,
     country_code: str | None = None,
+    intent: str | None = None,
 ) -> dict | None:
     """抽一张没见过的卡 {"category", "text", "key"};抽完或无此地 → None。
 
@@ -84,19 +73,19 @@ def draw(
     # 候选池: (category, key, text, weight)
     pool: list[tuple[str, str, str, float]] = []
 
-    entry = _load().get(place_name)
-    unseen_handwritten = 0
+    # 手写层: filter Card objects by place and unseen
+    handwritten_cards = [
+        c for c in _load()
+        if c.conditions.get("place") == place_name and c.id not in seen
+    ]
+    unseen_handwritten = len(handwritten_cards)
     has_local_food = False
-    if entry:
-        for cat in ("物产", "声音", "痕迹", "植被", "美食"):
-            for i, text in enumerate(entry.get(cat, [])):
-                key = f"{place_name}/{cat}/{i}"
-                if key not in seen:
-                    unseen_handwritten += 1
-                    w = 3.0 if cat == "美食" else 1.0
-                    pool.append((cat, key, text, w))
-                    if cat == "美食":
-                        has_local_food = True
+    for c in handwritten_cards:
+        cat = c.meta.get("category", "")
+        w = c.meta.get("weight", 1.0)
+        pool.append((cat, c.id, c.text, w))
+        if cat == "美食":
+            has_local_food = True
 
     # 级差: 手写层没空时烘焙卡不进池;空了才全权
     if unseen_handwritten == 0:
@@ -113,6 +102,10 @@ def draw(
             key = f"{place_name}/烘焙植被/{i}"
             if key not in seen:
                 pool.append(("植被", key, baked.render_flora(item, rng), 1.0))
+
+    # Card 12: intent bias for food
+    if intent in ("吃", "美食", "食物"):
+        pool = [(cat, k, t, w * 2 if cat == "美食" else w) for cat, k, t, w in pool]
 
     if not pool:
         return None
@@ -148,24 +141,33 @@ def rhythm_event(
     """
     if not place_name:
         return None
-    entry = _load().get(place_name)
-    if not entry:
-        return None
-    hits = []
-    for r in entry.get("节律", []):
-        if isinstance(r, str):
-            # Plain string: always eligible (no hour/month filter)
-            hits.append(r)
+
+    # Filter cards: place + 节律 category
+    hits: list[str] = []
+    for c in _load():
+        if c.conditions.get("place") != place_name:
             continue
-        if not (r["hours"][0] <= local_hour < r["hours"][1]):
+        if c.meta.get("category") != "节律":
             continue
-        months = r.get("months")
+
+        # Hours filter
+        hours = c.conditions.get("hours")
+        if hours:
+            if not (hours[0] <= local_hour < hours[1]):
+                continue
+
+        # Month filter
+        months = c.conditions.get("months")
         if months and month is not None and month not in months:
             continue
-        weekdays = r.get("weekdays")
+
+        # Weekday filter
+        weekdays = c.conditions.get("weekday")
         if weekdays is not None and weekday is not None and weekday not in weekdays:
             continue
-        hits.append(r["text"])
+
+        hits.append(c.text)
+
     if not hits:
         return None
     recent_set = set(recent or [])

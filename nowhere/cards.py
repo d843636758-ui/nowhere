@@ -78,11 +78,6 @@ def load_localcolor(data_dir: pathlib.Path | None = None) -> list[Card]:
         for k, v in regional.items():
             if k not in base:
                 base[k] = v
-            else:
-                # Merge categories that the main file doesn't have
-                for cat, items in v.items():
-                    if cat not in base[k]:
-                        base[k][cat] = items
 
     cards: list[Card] = []
     for place, entry in base.items():

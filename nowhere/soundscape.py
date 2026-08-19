@@ -6,7 +6,11 @@
 
 from __future__ import annotations
 
+import json
+import pathlib
 import random
+
+_DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 
 _SURFACE_ZH: dict[str, str] = {
     "forest": "林地", "grass": "草地", "rock": "岩地", "sand": "沙地",
@@ -99,3 +103,93 @@ def describe_sound(env: dict, rng: random.Random) -> str:
         ])
 
     return "".join(sounds)
+
+
+# ── Card 19: Dawn Chorus (日出前鸟叫) ──────────────────────────────
+
+_dawn_chorus_cache: dict | None = None
+
+
+def _load_dawn_chorus() -> dict:
+    global _dawn_chorus_cache
+    if _dawn_chorus_cache is None:
+        fp = _DATA_DIR / "dawn_chorus.json"
+        if fp.exists():
+            _dawn_chorus_cache = json.loads(fp.read_text(encoding="utf-8"))
+        else:
+            _dawn_chorus_cache = {}
+    return _dawn_chorus_cache
+
+
+def dawn_chorus(biome: str, sun_alt: float, rng: random.Random) -> str | None:
+    """Return a dawn chorus card if sun_alt is in -6..0 window.
+
+    Intensity maps to sun_alt position: -6→first(一只), -0→last(满).
+    Biome picks forest/city/water group; fallback to city.
+    """
+    if sun_alt < -6.0 or sun_alt > 0.0:
+        return None
+    data = _load_dawn_chorus()
+    # pick biome group
+    group_key = biome if biome in data else "city"
+    pool = data.get(group_key, data.get("city", []))
+    if not pool:
+        return None
+    # map sun_alt to index: -6→0, -0→3
+    t = (sun_alt + 6.0) / 6.0  # 0..1
+    idx = min(3, int(t * 4))
+    return pool[idx]
+
+
+# ── Card 21: Soundscape Credits (声音出处) ──────────────────────────
+
+_credits_cache: dict | None = None
+
+
+def _load_credits() -> dict:
+    global _credits_cache
+    if _credits_cache is None:
+        fp = _DATA_DIR / "soundscape_credits.json"
+        if fp.exists():
+            _credits_cache = json.loads(fp.read_text(encoding="utf-8"))
+        else:
+            _credits_cache = {}
+    return _credits_cache
+
+
+# biome → credits key mapping
+_BIOME_CREDIT_MAP: dict[str, str] = {
+    "forest": "forest", "rainforest": "forest",
+    "city": "urban", "urban": "urban",
+    "coast": "water_ocean", "water_ocean": "water_ocean",
+    "desert": "desert", "sand": "desert",
+    "grassland": "grass", "grass": "grass",
+    "tundra": "tundra", "snow": "tundra",
+    "mountain": "mountain", "rock": "mountain",
+    "wetland": "wetland",
+}
+
+
+def soundscape_credit(biome: str, rng: random.Random) -> str | None:
+    """20% chance to return a soundscape credit line matching biome.
+
+    Returns None if no match or roll fails.
+    """
+    if rng.random() > 0.20:
+        return None
+    credits_data = _load_credits()
+    credit_key = _BIOME_CREDIT_MAP.get(biome, "")
+    pool = credits_data.get(credit_key, [])
+    if not pool:
+        return None
+    entry = rng.choice(pool)
+    who = entry.get("who", "")
+    where = entry.get("where", "")
+    note = entry.get("note", "")
+    # 3 text templates
+    templates = [
+        f"这段声音,是{who}在{where}录的。{note}",
+        f"你听到的这些,是{who}在{where}收来的。{note}",
+        f"耳机里这些,来自{where},{who}录的。{note}",
+    ]
+    return rng.choice(templates)

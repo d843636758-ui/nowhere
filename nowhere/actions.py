@@ -37,8 +37,11 @@ class WalkContext:
     encounter_multiplier: float
     env_cached: bool
     prev_env: dict | None = None
+    quiet: bool = False
+    sections: list[str] = field(default_factory=list)
     # Mutable inter-action state
     mishap_fired: bool = False
+    had_local: bool = False  # set by LocalSceneAction, read by direction connector
 
 
 # ── Protocol ────────────────────────────────────────────────────────
@@ -107,11 +110,14 @@ class TimeaxisAction:
 
 
 class HumanitiesAction:
-    """人文卡: 走到附近触发(非随机)."""
+    """人文卡: 走到附近触发(非随机). Card 16: blind时禁抽."""
 
     name = "humanities"
 
     def should(self, ctx: WalkContext) -> bool:
+        # Card 16: blind mode disables humanities (they contain place names)
+        if getattr(ctx.state, "blind", False):
+            return False
         return True
 
     def render(self, ctx: WalkContext) -> str | None:
@@ -199,7 +205,7 @@ class EncounterAction:
         return ctx.rng.random() < 0.25 * ctx.encounter_multiplier
 
     def render(self, ctx: WalkContext) -> str | None:
-        from nowhere import encounters, notebook_mod
+        from nowhere import encounters, notebook as notebook_mod
 
         enc = encounters.draw_encounter(
             ctx.state.biome or "", ctx.lat, ctx.lon, ctx.rng,
@@ -279,6 +285,198 @@ class RiverAction:
         return _river_alignment_text(ctx.bearing, river_dir, ctx.rng) or None
 
 
+class BuriedItemAction:
+    """Card 13: Buried item discovery (8% chance within 3km)."""
+
+    name = "buried_item"
+
+    def should(self, ctx: WalkContext) -> bool:
+        return bool(ctx.state.pos)
+
+    def render(self, ctx: WalkContext) -> str | None:
+        from nowhere import placememory
+        from nowhere.server import (
+            _FIND_VARIANTS, _PUTBACK_VARIANTS, _sanitize_external,
+        )
+
+        nearby = placememory.buried_nearby(ctx.lat, ctx.lon, radius_km=3.0)
+        if not nearby or ctx.rng.random() >= 0.08:
+            return None
+        item = ctx.rng.choice(nearby)
+        find_text = ctx.rng.choice(_FIND_VARIANTS)
+        note_text = ""
+        if item.get("note"):
+            note_text = f" 盒子里还有一行字:{_sanitize_external(item['note'])}"
+        if ctx.state.souvenir is None:
+            ctx.state.souvenir = {
+                "name": item.get("name", "一个铁盒"),
+                "from": item.get("from", "土里"),
+                "desc": item.get("desc", ""),
+            }
+            return find_text + note_text
+        return find_text + note_text + ctx.rng.choice(_PUTBACK_VARIANTS)
+
+
+class NightNavAction:
+    """Card 14: Night navigation (30% chance at night)."""
+
+    name = "night_nav"
+
+    def should(self, ctx: WalkContext) -> bool:
+        return ctx.env.get("sky", {}).get("phase") in ("night", "nautical")
+
+    def render(self, ctx: WalkContext) -> str | None:
+        from nowhere import describe
+
+        if ctx.rng.random() >= 0.3:
+            return None
+        now = ctx.state.now()
+        month = now.month if now else 7
+        return describe.render_night_nav(
+            ctx.lat, ctx.env.get("sky", {}).get("moon_phase", 0),
+            ctx.env["sky"].get("phase", "night"), month, ctx.rng,
+        )
+
+
+class WildernessNarrativeAction:
+    """Deep wilderness "荒深档" rendering (Card 40)."""
+
+    name = "wilderness_narrative"
+
+    def should(self, ctx: WalkContext) -> bool:
+        return ctx.is_deep_wilderness and not ctx.env_cached
+
+    def render(self, ctx: WalkContext) -> str | None:
+        from nowhere.server import _WILDERNESS_FEATURES, _WILDERNESS_VARIANTS
+
+        parts: list[str] = []
+        wd = ctx.wilderness_depth
+        # Sparse narrative
+        if wd > 30.0 and not any(len(s) > 10 for s in ctx.sections):
+            parts.append("好久没见着人迹了。")
+        # Wilderness variant (only if not too many sections)
+        if len(ctx.sections) < 3:
+            parts.append(ctx.rng.choice(_WILDERNESS_VARIANTS))
+        # Procedural feature
+        if wd > 100.0 and ctx.rng.random() < 0.3:
+            parts.append(ctx.rng.choice(_WILDERNESS_FEATURES))
+        return "\n".join(parts) if parts else None
+
+
+class LocalSceneAction:
+    """Local-first scene: 城市特有 > 通用 biome."""
+
+    name = "local_scene"
+
+    def should(self, ctx: WalkContext) -> bool:
+        return not ctx.is_deep_wilderness and not ctx.env_cached
+
+    def render(self, ctx: WalkContext) -> str | None:
+        from nowhere import (
+            country as country_mod,
+            describe,
+            localcolor,
+            notebook as notebook_mod,
+            placememory,
+        )
+        from nowhere.server import _load_scene_file, _pick_fresh, _tf
+        from zoneinfo import ZoneInfo
+
+        place = ctx.state.place_name or ""
+        now = ctx.now
+        lat, lon = ctx.lat, ctx.lon
+        sections = ctx.sections
+
+        local_hour = None
+        cc = None
+        tz_walk = _tf.timezone_at(lat=lat, lng=lon)
+        if tz_walk and now is not None:
+            local_hour = now.astimezone(ZoneInfo(tz_walk)).hour
+        cc = country_mod.country_code_of(lat, lon)
+        ctx.had_local = False
+
+        # 1. Localcolor card
+        if place and len(sections) < 4:
+            local_card = localcolor.draw(
+                place, ctx.state.seen_cards, ctx.rng,
+                local_hour=local_hour, country_code=cc,
+                intent=getattr(ctx.state, 'intent', None),
+            )
+            if local_card:
+                ctx.state.seen_cards.add(local_card["key"])
+                placememory.save_seen_cards(place, ctx.state.seen_cards)
+                sections.append(local_card["text"])
+                ctx.had_local = True
+                try:
+                    if "/植被/" in local_card.get("key", ""):
+                        flora = local_card["text"].split("。")[0].split(",")[0].split("，")[0].strip()
+                        if flora:
+                            nb_env = dict(ctx.env) if ctx.env else {}
+                            nb_env["_dt"] = now
+                            notebook_mod.record_with_env("flora", flora, place, nb_env, lat)
+                except Exception:
+                    pass
+
+        # 1b. Trace (Card 16: blind时禁抽, traces contain place-specific details)
+        _blind = getattr(ctx.state, "blind", False)
+        if place and not _blind and placememory.has_trace(place) and len(sections) < 4:
+            trace_text = placememory.get_trace_text(place)
+            if trace_text and trace_text not in set(ctx.state.recent_scenes):
+                sections.append(trace_text)
+                ctx.state.recent_scenes.append(trace_text)
+                ctx.had_local = True
+
+        # 1c. Festival hit (Card 16: blind时禁抽)
+        if place and not _blind and len(sections) < 4:
+            from nowhere.server import _check_festival_hit
+            fest_text = _check_festival_hit(place, cc, lat, now, ctx.rng)
+            if fest_text and fest_text not in set(ctx.state.recent_scenes):
+                sections.append(fest_text)
+                ctx.state.recent_scenes.append(fest_text)
+                ctx.had_local = True
+
+        # 2. Location-specific scenes
+        if not ctx.had_local and place and len(sections) < 4:
+            location_scenes = describe._load_location_scenes()
+            if place in location_scenes:
+                text = _pick_fresh(location_scenes[place], ctx.rng)
+                if text:
+                    sections.append(text)
+                    ctx.had_local = True
+
+        # 3. Soundscape
+        if not ctx.had_local and place and len(sections) < 4:
+            soundscapes = _load_scene_file("scene_soundscape")
+            if place in soundscapes:
+                text = _pick_fresh(soundscapes[place], ctx.rng)
+                if text:
+                    sections.append(text)
+                    ctx.had_local = True
+
+        # 4. Taste/smell
+        if not ctx.had_local and place and len(sections) < 4:
+            tastes = _load_scene_file("scene_taste")
+            if place in tastes:
+                text = _pick_fresh(tastes[place], ctx.rng)
+                if text:
+                    sections.append(text)
+                    ctx.had_local = True
+
+        # 5. Generic biome fallback
+        if not ctx.had_local and len(sections) < 4:
+            composed = describe._compose_walk_scene(
+                ctx.step_result.get("new_surface", ctx.env.get("surface", "grass")),
+                ctx.state.biome or "",
+                ctx.rng,
+                lat=lat, lon=lon,
+                recent_scenes=ctx.state.recent_scenes,
+            )
+            if composed:
+                sections.append(composed)
+
+        return None  # text already appended to ctx.sections
+
+
 # ── Post-compose Actions (append to prose, not sections) ────────────
 
 
@@ -288,6 +486,8 @@ class SouvenirAction:
     name = "souvenir"
 
     def should(self, ctx: WalkContext) -> bool:
+        if ctx.quiet:
+            return False
         chance = 0.5 if len(ctx.state.path) <= 1 else 0.3
         return ctx.state.souvenir is None and ctx.rng.random() < chance
 
@@ -302,11 +502,15 @@ class SouvenirAction:
 
 
 class FestivalChaseAction:
-    """Card 42: Festival chase wind mention -- 10% per walk, once per journey."""
+    """Card 42: Festival chase wind mention -- 10% per walk, once per journey.
+    Card 16: blind时禁抽(festival names reveal location)."""
 
     name = "festival_chase"
 
     def should(self, ctx: WalkContext) -> bool:
+        # Card 16: blind mode disables festival chase (names reveal location)
+        if getattr(ctx.state, "blind", False):
+            return False
         return (
             not ctx.state.errand_festival_mentioned_this_journey
             and ctx.rng.random() < 0.10
@@ -365,93 +569,31 @@ class CotravelerAction:
         return "\n".join(prose_parts) if prose_parts else None
 
 
-class WaterFeaturesAction:
-    """Water features + SST + marine life rendering."""
-
-    name = "water_features"
-
-    def should(self, ctx: WalkContext) -> bool:
-        return bool(ctx.water_features)
-
-    def render(self, ctx: WalkContext) -> str | None:
-        import asyncio
-        from nowhere import describe, notebook_mod, water
-
-        parts: list[str] = []
-        lat, lon = ctx.lat, ctx.lon
-        now = ctx.now
-        env = ctx.env
-
-        # Water feature description
-        water_text = describe.render(
-            "water_features", ctx.water_features, None, ctx.rng,
-            biome=ctx.state.biome or "", elevation=env.get("elevation", 0),
-        )
-        if water_text:
-            parts.append(water_text)
-        # Card 43: water notebook hook
-        try:
-            wn = ctx.water_features[0].get("name", "") if ctx.water_features else ""
-            if wn:
-                nb_env = dict(env) if env else {}
-                nb_env["_dt"] = now
-                notebook_mod.record_with_env("water", wn, ctx.state.place_name or "", nb_env, lat)
-        except Exception:
-            pass
-
-        # SST
-        try:
-            sst = asyncio.get_event_loop().run_until_complete(
-                asyncio.wait_for(water.sea_surface_temp(lat, lon), timeout=8.0)
-            )
-            if sst is not None:
-                parts.append(water.describe_sst(sst, ctx.rng))
-        except Exception:
-            pass
-
-        # Marine life (30% chance)
-        if ctx.rng.random() < 0.3:
-            try:
-                m = asyncio.get_event_loop().run_until_complete(
-                    asyncio.wait_for(water.marine_life(lat, lon, ctx.rng), timeout=8.0)
-                )
-                if m:
-                    parts.append(f"{m['common_name']}。{m['distance_m']}米外。{m['scene']}")
-            except Exception:
-                pass
-
-        # Along-river narrative
-        if any(f.get("type") == "river" for f in ctx.water_features):
-            from nowhere.server import _compute_river_direction, _river_alignment_text
-
-            river_dir = _compute_river_direction(ctx.water_features, lat, lon)
-            rtext = _river_alignment_text(ctx.bearing, river_dir, ctx.rng)
-            if rtext:
-                parts.append(rtext)
-
-        return "\n".join(parts) if parts else None
-
-
 # ── Registries ──────────────────────────────────────────────────────
 
 # Pre-compose: feed into sections list. Order = priority.
 ACTIONS: list[Action] = [
-    RhythmAction(),        # 节日/纪念日 (highest)
-    TimeaxisAction(),      # 时间轴
-    HumanitiesAction(),    # 人文卡
-    PersonAction(),        # 卡中人遇见
-    MishapAction(),        # 意外层
-    MishapEchoAction(),    # 意外回声 (depends on mishap)
-    EncounterAction(),     # 文件遭遇
-    MessageAction(),       # 消息遭遇
-    WildernessEventAction(),  # 荒深事件
-    RiverAction(),         # 河流叙事
-    WaterFeaturesAction(), # 水文 + SST + 海洋生物
+    WildernessNarrativeAction(),  # 荒深档叙事 (gated by is_deep_wilderness)
+    LocalSceneAction(),           # 城市特有 > 通用 biome
+    RhythmAction(),               # 节日/纪念日 (highest priority)
+    TimeaxisAction(),             # 时间轴
+    HumanitiesAction(),           # 人文卡
+    PersonAction(),               # 卡中人遇见
+    MishapAction(),               # 意外层
+    MishapEchoAction(),           # 意外回声 (depends on mishap)
+    EncounterAction(),            # 文件遭遇
+    MessageAction(),              # 消息遭遇
+    WildernessEventAction(),      # 荒深事件
+    RiverAction(),                # 河流叙事
+    BuriedItemAction(),           # 埋藏物品
+    NightNavAction(),             # 夜间导航
 ]
 
-# Post-compose: append to prose string.
-POST_ACTIONS: list[Action] = [
+# Post-compose: append to prose. Split by normalize boundary.
+PRE_NORMALIZE_ACTIONS: list[Action] = [
     FestivalChaseAction(), # 节日追风
     SouvenirAction(),      # 纪念品
+]
+POST_NORMALIZE_ACTIONS: list[Action] = [
     CotravelerAction(),    # 同游者
 ]

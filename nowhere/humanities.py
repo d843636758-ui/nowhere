@@ -16,6 +16,8 @@ import pathlib
 import random
 import sys
 
+from nowhere import cards as _cards
+
 _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 _DATA = _DATA_DIR / "humanities.json"
 _REGIONAL_FILES = [
@@ -26,9 +28,11 @@ _REGIONAL_FILES = [
 _raw: dict | None = None
 _places: dict | None = None
 _aliases: dict | None = None
+_hu_cards: list[_cards.Card] | None = None
 
 
 def _load() -> dict:
+    """Load raw humanities JSON (for coords/aliases).  Returns full raw dict."""
     global _raw, _places, _aliases
     if _raw is not None:
         return _raw
@@ -67,6 +71,15 @@ def _load() -> dict:
     return _raw
 
 
+def _get_cards() -> list[_cards.Card]:
+    """Load humanities cards via the unified Card layer."""
+    global _hu_cards
+    if _hu_cards is not None:
+        return _hu_cards
+    _hu_cards = _cards.load_humanities(_DATA_DIR)
+    return _hu_cards
+
+
 def _haversine_km(a_lat: float, a_lon: float, b_lat: float, b_lon: float) -> float:
     """Haversine distance in km."""
     lat1, lon1, lat2, lon2 = map(math.radians, (a_lat, a_lon, b_lat, b_lon))
@@ -85,7 +98,9 @@ def _resolve(place_name: str | None) -> str | None:
 def has_place(place_name: str | None) -> bool:
     """此地有人文卡就算有。"""
     name = _resolve(place_name)
-    return bool(name and name in _places)
+    if not name:
+        return False
+    return any(c.conditions.get("place") == name for c in _get_cards())
 
 
 def get_place_coords(place_name: str) -> dict | None:
@@ -112,23 +127,23 @@ def draw(place_name: str | None, seen: set[str], rng: random.Random) -> dict | N
     name = _resolve(place_name)
     if not name:
         return None
-    entry = _load().get("places", {}).get(name)
-    if not entry:
-        return None
 
     for cat in ("事件", "人物", "作品"):
-        cards = entry.get(cat, [])
         unseen = [
-            (i, c) for i, c in enumerate(cards) if f"{name}/{cat}/{i}" not in seen
+            c for c in _get_cards()
+            if c.conditions.get("place") == name
+            and c.meta.get("category") == cat
+            and c.id not in seen
         ]
         if not unseen:
             continue
-        i, card = rng.choice(unseen)
-        ref = {k: v for k, v in card.items() if k != "text"}
+        card = rng.choice(unseen)
+        # Build ref from meta (all fields except category)
+        ref = {k: v for k, v in card.meta.items() if k != "category"}
         return {
             "category": cat,
-            "text": card["text"],
-            "key": f"{name}/{cat}/{i}",
+            "text": card.text,
+            "key": card.id,
             "ref": ref,
         }
     return None
@@ -169,13 +184,10 @@ def nearby_place(
 
     # 只留有未见卡的
     def _has_unseen(name: str) -> bool:
-        entry = _places.get(name, {})
-        for cat in ("事件", "人物", "作品"):
-            cards = entry.get(cat, [])
-            for i in range(len(cards)):
-                if f"{name}/{cat}/{i}" not in seen:
-                    return True
-        return False
+        return any(
+            c.conditions.get("place") == name and c.id not in seen
+            for c in _get_cards()
+        )
 
     candidates = [(n, d) for n, d in candidates if _has_unseen(n)]
     if not candidates:
