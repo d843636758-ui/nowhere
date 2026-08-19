@@ -179,10 +179,13 @@ def talk(
 ) -> str:
     """返回一句搭话内容。
 
-    question 包含"路"/"怎么走"/"方向" → knows.text
+    question 含方向/路/怎么走/节日/传言/风声/传闻 → knows.text
     line_index >= len(lines) → 记得你变体
     """
-    if question and any(k in question for k in ("路", "怎么走", "方向", "在哪", "哪里")):
+    if question and any(k in question for k in (
+        "路", "怎么走", "方向", "在哪", "哪里",
+        "节日", "节", "传言", "风声", "传闻", "听说",
+    )):
         knows = entry.get("knows", {})
         if knows and knows.get("text"):
             return knows["text"]

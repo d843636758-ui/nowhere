@@ -885,8 +885,10 @@ def render(
     global _CURRENT_BIOME
     _CURRENT_BIOME = biome or ""
     # Pass recent_touch to terrain handler via module-level variable
+    # Update in-place so _render_terrain's clear() persists across calls
     global _RECENT_TOUCH
-    _RECENT_TOUCH = recent_touch or set()
+    _RECENT_TOUCH.clear()
+    _RECENT_TOUCH.update(recent_touch or set())
     return handler(payload, prev, rng)
 
 
@@ -1243,7 +1245,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             elev_clause=elev_clause,
         )
 
-    # Append touch description (filter out recently used)
+    # Append touch description (filter out recently used, cycle on exhaustion)
     touch_pool = _TOUCH_BY_SURFACE.get(surface_key, [])
     if touch_pool:
         recent = _RECENT_TOUCH
@@ -1251,10 +1253,13 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             fresh = [t for t in touch_pool if t not in recent]
             if fresh:
                 touch_pool = fresh
+            else:
+                # Pool exhausted — reset cycle
+                _RECENT_TOUCH.clear()
         pick = rng.choice(touch_pool)
         result += pick + "。"
 
-    # Append smell description (filter out recently used)
+    # Append smell description (filter out recently used, cycle on exhaustion)
     smell_pool = _SMELL_BY_BIOME.get(biome, _SMELL_BY_BIOME.get(surface_key, []))
     if smell_pool:
         recent = _RECENT_TOUCH
@@ -1262,6 +1267,8 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             fresh = [s for s in smell_pool if s not in recent]
             if fresh:
                 smell_pool = fresh
+            else:
+                _RECENT_TOUCH.clear()
         result += rng.choice(smell_pool) + "。"
 
     # 海拔省略后模板可能留下"。。"

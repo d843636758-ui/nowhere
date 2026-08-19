@@ -3268,7 +3268,10 @@ def talk_impl(question: str | None = None) -> dict:
     reply = people_mod.talk(entry, _state.talk_count, question=question, rng=_rng)
 
     # Only advance line count if it wasn't a knows-type question
-    is_knows = question and any(k in question for k in ("路", "怎么走", "方向", "在哪", "哪里"))
+    is_knows = question and any(k in question for k in (
+        "路", "怎么走", "方向", "在哪", "哪里",
+        "节日", "节", "传言", "风声", "传闻", "听说",
+    ))
     if not is_knows:
         _state.talk_count += 1
     _state.save()
