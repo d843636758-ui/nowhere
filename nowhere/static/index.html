@@ -427,23 +427,24 @@ function frontSVG(stamp,id){
 
 /* ── 明信片墙 ─────────────────────────────────── */
 let CARDS=[];
+const esc=s=>String(s??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
 function renderWall(cards){
   CARDS=cards;
   $("wallgrid").innerHTML=cards.map((c,i)=>
     `<div class="mini" style="--tilt:${(i%3-1)*1.2}deg" onclick="openCard(${c.id})">
       ${frontHTML(c.stamp||{},c.id,c.front_img)}
-      <div class="cap">${(c.stamp||{}).place||""} · ${((c.stamp||{}).local_time||"").slice(0,10)}</div>
+      <div class="cap">${esc((c.stamp||{}).place||"")} · ${esc(((c.stamp||{}).local_time||"").slice(0,10))}</div>
     </div>`).join("")||"<p>还没有明信片。他寄了,这里就有。</p>";
 }
 function openCard(id){
   const c=CARDS.find(x=>x.id===id);if(!c)return;
   const st=c.stamp||{};
-  const replies=(c.replies||[]).map(r=>`<div class="r">↩ ${r.content||r}</div>`).join("");
+  const replies=(c.replies||[]).map(r=>`<div class="r">↩ ${esc(r.content||r)}</div>`).join("");
   $("flipcard").innerHTML=`
     ${frontHTML(st,c.id,c.front_img)}
     <div class="back">
-      <div class="words">${c.text||""}</div>
-      <div class="stamp">${st.place||""}<br>${Math.abs(st.lat||0).toFixed(1)}°${st.lat>=0?"N":"S"} ${Math.abs(st.lon||0).toFixed(1)}°${st.lon>=0?"E":"W"}<br>${st.local_time||""}</div>
+      <div class="words">${esc(c.text||"")}</div>
+      <div class="stamp">${esc(st.place||"")}<br>${Math.abs(st.lat||0).toFixed(1)}°${st.lat>=0?"N":"S"} ${Math.abs(st.lon||0).toFixed(1)}°${st.lon>=0?"E":"W"}<br>${esc(st.local_time||"")}</div>
       <div class="replies">${replies}
         <div class="replybox">
           <input id="replyin" placeholder="回他一句……">

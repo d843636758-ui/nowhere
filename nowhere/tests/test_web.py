@@ -71,6 +71,9 @@ def test_index_returns_html():
     r = c.get("/")
     assert r.status_code == 200
     assert "乌有乡" in r.text and "world110m.js" in r.text
+    assert "const esc=" in r.text
+    assert "${esc(c.text||\"\")}" in r.text
+    assert "${esc(r.content||r)}" in r.text
 
 
 def test_multiple_messages_order():

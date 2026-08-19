@@ -75,8 +75,12 @@ async def test_full_chain(respx_mock: respx.MockRouter, tmp_path, monkeypatch):
 
     # ── mark + reopen ────────────────────────────────────────────────
     server.mark_impl("测试点", "链式")
+    server._state.messages.append({"content": "[回信] 一路平安", "encountered": False})
     r2 = await server.open_door_impl(to="测试点")
     assert r2["text"], "open_door to mark must produce prose"
+    assert list(server._state.messages) == [
+        {"content": "[回信] 一路平安", "encountered": False}
+    ], "an unread reply must survive a new door"
     # Position may differ (mark lookup vs random) -- just must not crash
 
     # ── where_am_i ───────────────────────────────────────────────────
