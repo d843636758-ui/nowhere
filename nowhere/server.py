@@ -789,10 +789,12 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         _state.biome = spot.get("biome") if spot else None
     elif not resume:
         # Fresh landing (random or named destination): always reset state
-        # Preserve seen sets to avoid re-triggering the same cards
+        # Preserve seen sets to avoid re-triggering the same cards, and keep
+        # the one item carried in the traveller's pocket across doors.
         old_seen_cards = _state.seen_cards.copy() if _state else set()
         old_seen_humanities = _state.seen_humanities.copy() if _state else set()
         old_messages = list(_state.messages) if _state else []
+        old_souvenir = _state.souvenir.copy() if _state and _state.souvenir else None
         _state = state_mod.WorldState()
         _state.pos = (lat, lon)
         _state.landed_at = datetime.now(timezone.utc)
@@ -801,6 +803,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         _state.seen_cards = old_seen_cards
         _state.seen_humanities = old_seen_humanities
         _state.messages.extend(old_messages)
+        _state.souvenir = old_souvenir
     # 地方记忆: 这地方记得你
     _state.seen_cards = placememory.seen_cards(place_name)
     _state.seen_humanities = placememory.seen_humanities()
