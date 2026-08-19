@@ -67,6 +67,10 @@ class WorldState:
         self.person_encountered_this_walk: bool = False  # one encounter per walk
         # ── Wilderness depth tracking (Card 40: honest boundaries) ────
         self.wilderness_depth_km: float = 0.0  # distance from nearest known place/water feature
+        # ── Errand (Card 42: 差事) ────────────────────────────────────
+        self.errand: dict | None = None  # active errand {kind, ...}
+        self.errand_letter_taken_this_journey: bool = False  # max 1 letter per journey
+        self.errand_festival_mentioned_this_journey: bool = False  # max 1 festival wind per journey
 
     def now(self) -> datetime | None:
         """Return the current simulated UTC time: landed_at + elapsed_hours."""
@@ -115,6 +119,9 @@ class WorldState:
             "last_person_place": self.last_person_place,
             "talk_count": self.talk_count,
             "person_encountered_this_walk": self.person_encountered_this_walk,
+            "errand": self.errand,
+            "errand_letter_taken_this_journey": self.errand_letter_taken_this_journey,
+            "errand_festival_mentioned_this_journey": self.errand_festival_mentioned_this_journey,
         }
 
     @classmethod
@@ -167,6 +174,9 @@ class WorldState:
         s.last_person_place = data.get("last_person_place")
         s.talk_count = data.get("talk_count", 0)
         s.person_encountered_this_walk = data.get("person_encountered_this_walk", False)
+        s.errand = data.get("errand")
+        s.errand_letter_taken_this_journey = data.get("errand_letter_taken_this_journey", False)
+        s.errand_festival_mentioned_this_journey = data.get("errand_festival_mentioned_this_journey", False)
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
             s.radio_pos = tuple(data["radio_pos"])

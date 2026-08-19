@@ -33,6 +33,7 @@ from nowhere import (
     country,
     describe,
     encounters,
+    errands,
     geocode,
     hydrology,
     humanities,
@@ -43,6 +44,7 @@ from nowhere import (
     listen as listen_mod,
     localcolor,
     marks as marks_mod,
+    notebook as notebook_mod,
     people as people_mod,
     placememory,
     places,
@@ -142,6 +144,102 @@ def _load_phenology() -> dict:
         else:
             setattr(_load_phenology, cache_key, {})
     return getattr(_load_phenology, cache_key)
+
+
+def _load_mishaps() -> list[dict]:
+    """Load mishaps.json once and cache."""
+    cache_key = "_mishaps_cache"
+    if not hasattr(_load_mishaps, cache_key):
+        fp = _TIMEAXES_DATA_DIR / "mishaps.json"
+        if fp.exists():
+            setattr(_load_mishaps, cache_key,
+                    _json.loads(fp.read_text(encoding="utf-8")))
+        else:
+            setattr(_load_mishaps, cache_key, [])
+    return getattr(_load_mishaps, cache_key)
+
+
+# ── Mishap cooldown tracking (per-journey, not serialized) ─────────
+_mishap_last_step: int = -999  # step counter of last mishap
+_MISHAP_COOLDOWN: int = 10  # minimum steps between mishaps
+_MISHAP_CHANCE: float = 0.03  # 3% per walk step
+_MISHAP_ECHO_CHANCE: float = 0.50  # 50% next step has echo
+
+
+def _try_mishap(env: dict, rng: random.Random) -> dict | None:
+    """Try to trigger a mishap. Returns mishap dict or None.
+
+    Conditions:
+    - 3% chance per walk step
+    - 10-step cooldown between mishaps
+    - Each card only once per journey (mishap_seen)
+    - Only trigger when env doesn't contradict (rain mishap needs rain,
+      item mishap not in city)
+    """
+    global _mishap_last_step
+
+    # Chance roll
+    if rng.random() > _MISHAP_CHANCE:
+        return None
+
+    # Cooldown check
+    if _state.walk_step_counter - _mishap_last_step < _MISHAP_COOLDOWN:
+        return None
+
+    # Load and filter candidates
+    all_mishaps = _load_mishaps()
+    seen = set(_state.mishap_seen)
+    candidates = [m for m in all_mishaps if m["id"] not in seen]
+
+    if not candidates:
+        return None
+
+    # Environment constraints
+    weather = env.get("weather", {})
+    precip = weather.get("precip", "none")
+    biome = _state.biome or ""
+
+    def _env_allows(m: dict) -> bool:
+        req = m.get("requires", {})
+        # Rain/snow/storm mishaps need matching precipitation
+        need_precip = req.get("precip")
+        if need_precip and precip != need_precip:
+            return False
+        # Item mishaps: not in city (city has shops to fix things)
+        if m["tier"] == "item" and biome == "city":
+            return False
+        return True
+
+    candidates = [m for m in candidates if _env_allows(m)]
+    if not candidates:
+        return None
+
+    # Pick one
+    mishap = rng.choice(candidates)
+    _state.mishap_seen.append(mishap["id"])
+    _mishap_last_step = _state.walk_step_counter
+
+    # Apply state effects
+    if mishap.get("elapsed_hours"):
+        _state.elapsed_hours += mishap["elapsed_hours"]
+    if mishap.get("mishap_tag"):
+        _state.mishap_tag = mishap["mishap_tag"]
+
+    return mishap
+
+
+def _try_mishap_echo(rng: random.Random) -> str | None:
+    """50% chance to return an echo from the last mishap."""
+    if not _state.mishap_seen:
+        return None
+    if rng.random() > _MISHAP_ECHO_CHANCE:
+        return None
+    # Find the last mishap and return its echo
+    last_id = _state.mishap_seen[-1]
+    for m in _load_mishaps():
+        if m["id"] == last_id:
+            return m.get("echo")
+    return None
 
 
 def _lunar_info(dt: datetime) -> dict | None:
@@ -759,6 +857,16 @@ async def _get_radio(lat: float, lon: float) -> dict | None:
     if station is not None:
         _state.radio_station = station
         _state.radio_pos = (lat, lon)
+        # ── Card 43: radio notebook hook ────────────────────────────
+        try:
+            _rn = station.get("name", "")
+            if _rn:
+                _place = _state.place_name or ""
+                _nb_env = dict(_state.last_env or {})
+                _nb_env["_dt"] = _state.now()
+                notebook_mod.record_with_env("radio", _rn, _place, _nb_env, lat)
+        except Exception:
+            pass
     return station
 
 
@@ -1505,6 +1613,84 @@ def _sky_delta(old: dict | None, new: dict) -> float:
     return 0.0
 
 
+# ── Card 42: Festival chase helper ────────────────────────────────────
+
+def _check_festival_chase(lat: float, lon: float,
+                          sim_time: datetime | None) -> str | None:
+    """Check if a festival is opening within 800km and 5 simulated days.
+
+    Returns wind-mention text or None.
+    Uses festivals.json data (loaded by localcolor).
+    """
+    if sim_time is None:
+        return None
+    try:
+        import json as _json
+        import pathlib as _pathlib
+        fp = _pathlib.Path(__file__).resolve().parent / "data" / "festivals.json"
+        if not fp.exists():
+            return None
+        festivals = _json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    now_month = sim_time.month
+    now_day = sim_time.day
+
+    for fest in festivals:
+        window = fest.get("window", {})
+        start = window.get("start")
+        end = window.get("end")
+        if not start or not end:
+            continue
+        fest_start_month, fest_start_day = start[0], start[1]
+
+        # Days until festival starts (simple month/day delta)
+        try:
+            fest_date = datetime(sim_time.year, fest_start_month, fest_start_day,
+                                 tzinfo=sim_time.tzinfo or timezone.utc)
+            days_until = (fest_date - sim_time).days
+        except (ValueError, TypeError):
+            continue
+
+        if days_until < 0 or days_until > 5:
+            continue
+
+        # Check distance: festival must have place coords
+        fest_place = fest.get("place", "")
+        if not fest_place:
+            continue
+
+        # Use localcolor to look up place coords (simple lookup)
+        try:
+            from nowhere import humanities as _h
+            coords = _h.get_place_coords(fest_place)
+            if not coords:
+                continue
+            fest_lat, fest_lon = coords["lat"], coords["lon"]
+        except Exception:
+            continue
+
+        # Haversine distance
+        dlat = math.radians(fest_lat - lat)
+        dlon = math.radians(fest_lon - lon)
+        a = (math.sin(dlat / 2) ** 2
+             + math.cos(math.radians(lat)) * math.cos(math.radians(fest_lat))
+             * math.sin(dlon / 2) ** 2)
+        dist_km = 2 * 6371.0 * math.asin(math.sqrt(a))
+
+        if dist_km > 800:
+            continue
+
+        # Found a nearby festival opening soon
+        name = fest.get("name", "")
+        if days_until <= 0:
+            return errands.create_festival_rumor(fest_place, name, 0)
+        return errands.create_festival_rumor(fest_place, name, days_until)
+
+    return None
+
+
 def _build_salience_candidates(
     env: dict[str, Any],
     prev_env: dict[str, Any] | None,
@@ -1624,6 +1810,8 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             _state = existing
             _rng = random.Random(int(os.environ["NOWHERE_SEED"])) if os.environ.get("NOWHERE_SEED") else random.Random()
             _recent_salience_kinds = set()
+            global _mishap_last_step
+            _mishap_last_step = -999
             place = _state.place_name or to
 
             response_parts = [farewell_text]
@@ -1732,6 +1920,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         _state.seen_humanities = old_seen_humanities
         _state.messages.extend(old_messages)
         _state.souvenir = old_souvenir
+        _mishap_last_step = -999
     # 地方记忆: 这地方记得你
     _state.seen_cards = placememory.seen_cards(place_name)
     _state.seen_humanities = placememory.seen_humanities()
@@ -1777,6 +1966,15 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
         )
+        # ── Card 43: water notebook hook (open_door) ────────────────
+        try:
+            _wn = water_features[0].get("name", "") if water_features else ""
+            if _wn:
+                _nb_env = dict(env) if env else {}
+                _nb_env["_dt"] = _state.now()
+                notebook_mod.record_with_env("water", _wn, place_name, _nb_env, lat)
+        except Exception:
+            pass
 
     # Sea surface temperature
     sst_text = ""
@@ -1864,6 +2062,16 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         _state.seen_cards.add(local_card["key"])
         placememory.save_seen_cards(place_name, _state.seen_cards)
         sections.append(local_card["text"])
+        # ── Card 43: flora notebook hook ────────────────────────────
+        try:
+            if "/植被/" in local_card.get("key", ""):
+                _flora_name = local_card["text"].split("。")[0].split(",")[0].split("，")[0].strip()
+                if _flora_name:
+                    _nb_env = dict(env) if env else {}
+                    _nb_env["_dt"] = _state.now()
+                    notebook_mod.record_with_env("flora", _flora_name, place_name, _nb_env, lat)
+        except Exception:
+            pass
 
     # ── 六根时间轴(Card 46): landing 版,最多2层 ─────────────────
     if _now is not None:
@@ -2189,6 +2397,16 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
         )
+        # ── Card 43: water notebook hook ────────────────────────────
+        try:
+            if water_features:
+                _wn = water_features[0].get("name", "") if water_features else ""
+                if _wn:
+                    _nb_env = dict(env) if env else {}
+                    _nb_env["_dt"] = now
+                    notebook_mod.record_with_env("water", _wn, _state.place_name or "", _nb_env, lat)
+        except Exception:
+            pass
 
     sst_text = ""
     try:
@@ -2249,6 +2467,21 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         enc = encounters.draw_encounter(_state.biome or "", lat, lon, _rng, place_name=_state.place_name or "")
         if enc:
             file_encounter_text = enc
+            # ── Card 43: fauna notebook hook ────────────────────────
+            try:
+                _fauna_name = enc.split("。")[0].split(",")[0].split("，")[0].strip()
+                # 跳过城市名开头的条目(不是动物)
+                _skip_city = False
+                for _cp in ("巴黎", "伦敦", "东京", "纽约", "上海", "北京", "罗马", "柏林"):
+                    if _fauna_name.startswith(_cp):
+                        _skip_city = True
+                        break
+                if _fauna_name and not _skip_city:
+                    _nb_env = dict(env) if env else {}
+                    _nb_env["_dt"] = now
+                    notebook_mod.record_with_env("fauna", _fauna_name, _state.place_name or "", _nb_env, lat)
+            except Exception:
+                pass
 
     # ── 4c. Deep wilderness: 10+ steps, 5% procedural flesh event ──
     wilderness_event_text = ""
@@ -2273,6 +2506,17 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                                    recent_touch=set(_state.recent_touch_sentences))
             if text:
                 sections.append(text)
+                # Track touch/smell sentences for cross-step dedup
+                if c["kind"] == "terrain":
+                    surface = c["payload"].get("surface", "")
+                    for ts in describe._TOUCH_BY_SURFACE.get(surface, []):
+                        if ts in text and ts not in _state.recent_touch_sentences:
+                            _state.recent_touch_sentences.append(ts)
+                    for bs in describe._SMELL_BY_BIOME.get(_state.biome or "", []):
+                        if bs in text and bs not in _state.recent_touch_sentences:
+                            _state.recent_touch_sentences.append(bs)
+                    # Keep window of 5 (pool min size is 6, ensures 1 fresh)
+                    _state.recent_touch_sentences = _state.recent_touch_sentences[-5:]
 
     if water_text:
         sections.append(water_text)
@@ -2328,6 +2572,16 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                     placememory.save_seen_cards(place, _state.seen_cards)
                     sections.append(local_card["text"])
                     _had_local = True
+                    # ── Card 43: flora notebook hook ────────────────
+                    try:
+                        if "/植被/" in local_card.get("key", ""):
+                            _flora_name = local_card["text"].split("。")[0].split(",")[0].split("，")[0].strip()
+                            if _flora_name:
+                                _nb_env = dict(env) if env else {}
+                                _nb_env["_dt"] = now
+                                notebook_mod.record_with_env("flora", _flora_name, place, _nb_env, lat)
+                    except Exception:
+                        pass
 
             # 2. Location-specific scenes (always try if place has entries)
             if not _had_local and place and len(sections) < 4:
@@ -2437,6 +2691,17 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     if person_text:
         sections.append(person_text)
 
+    # ── 5e. 意外层(Card 28): mishap — 3% per step, 10-step cooldown ──
+    mishap = _try_mishap(env, _rng)
+    if mishap:
+        sections.append(mishap["text"])
+
+    # ── 5f. 意外回声: 50% chance next step echoes last mishap ───────
+    if not mishap:  # only echo if no new mishap this step
+        echo = _try_mishap_echo(_rng)
+        if echo:
+            sections.append(echo)
+
     # 留白: 缓存命中且无任何 section 命中 → 短句直接返回
     quiet = env_cached and not sections
 
@@ -2490,6 +2755,15 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             if souvenir:
                 _state.souvenir = souvenir
                 prose += f"\n{ souvenir['desc']}"
+
+    # ── 7a. Card 42: Festival chase wind mention ─────────────────────
+    # 10% chance per walk, once per journey, if festival within 800km/5 days
+    if (not _state.errand_festival_mentioned_this_journey
+            and _rng.random() < 0.10):
+        _fest_wind = _check_festival_chase(lat, lon, now)
+        if _fest_wind:
+            prose += f"\n{_fest_wind}"
+            _state.errand_festival_mentioned_this_journey = True
 
     prose = describe._normalize_prose(prose)
     _state.last_text = prose
@@ -2784,6 +3058,15 @@ async def look_around_impl() -> dict:
                 source="inaturalist",
             )
             sections.append(describe.render("life", life_result, None, _rng))
+            # ── Card 43: fauna notebook hook ────────────────────────
+            try:
+                _fn = life_result.get("common_name") or life_result.get("name", "")
+                if _fn:
+                    _nb_env = dict(_state.last_env or {})
+                    _nb_env["_dt"] = now
+                    notebook_mod.record_with_env("fauna", _fn, place, _nb_env, lat)
+            except Exception:
+                pass
 
     # ── 6. Art encounter - 30% chance ───────────────────────────────
     if _rng.random() < 0.3:
@@ -2895,6 +3178,10 @@ async def wait_impl(hours: float = 1.0) -> dict:
         # Add a "sitting still" moment every other hour (skip on 留白)
         if h % 2 == 1 and not quiet:
             sections.append(_rng.choice(_wait_scenes))
+
+        # Card 42: letter in pack → 10% weight mention during wait
+        if _state.errand and _state.errand.get("kind") == "letter" and _rng.random() < 0.10:
+            sections.append(errands.letter_wait_text(_rng))
 
         prev_env = env
         h += 1
@@ -3228,6 +3515,11 @@ def where_am_i_impl() -> dict:
     elif _state.wilderness_depth_km > 30.0:
         parts.append(f"人迹罕至。最近的已知地点在{_state.wilderness_depth_km:.0f}公里外。")
 
+    # Card 42: errand hint
+    errand_hint = errands.errand_hint_line(_state.errand)
+    if errand_hint:
+        parts.append(errand_hint)
+
     return {
         "text": "".join(parts),
         "data": {
@@ -3457,6 +3749,22 @@ def send_postcard_impl(text: str) -> dict:
         f"{s['place']}。{lat_dir}{abs(s['lat']):.1f}°,{lon_dir}{abs(s['lon']):.1f}°。"
         f"海拔{elev}米。{s['local_time']}。"
     )
+
+    # ── Card 42: 邮差差事 — 寄完明信片 10% 拿到一封信 ────────────
+    if (not _state.errand
+            and not _state.errand_letter_taken_this_journey
+            and _rng.random() < 0.10):
+        letter = errands.pick_letter(_rng)
+        if letter:
+            _state.errand = errands.take_letter(letter, _state.now() or datetime.now(timezone.utc))
+            _state.errand_letter_taken_this_journey = True
+            _state.save()
+            stamp_describe += (
+                f"\n寄完明信片,柜台后面的人递过来一封信。"
+                f"「给{letter['recipient']}的。{letter['sender']}托的。」"
+                f"你把信揣进包里。"
+            )
+
     return {"text": stamp_describe, "data": card}
 
 
@@ -3559,6 +3867,88 @@ def give_souvenir() -> dict:
     s = _state.souvenir
     _state.souvenir = None
     return {"text": f"你把{ s['name']}放在了路边。也许会有人捡到。", "data": {"dropped": s}}
+
+
+@mcp.tool()
+def deliver() -> dict:
+    """送达身上的差事(信/铁盒)。需要在收信地附近(5km)。"""
+    return deliver_impl()
+
+
+def deliver_impl() -> dict:
+    """送达差事。"""
+    global _state
+
+    if _state.pos is None:
+        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+    if _state.errand is None:
+        return {"text": "身上没有差事。", "data": {"error": "no_errand"}}
+
+    kind = _state.errand.get("kind")
+
+    if kind == "letter":
+        # Build place coords from explorable_index
+        place_coords = _build_place_coords()
+        matched = errands.check_delivery(
+            _state.pos, _state.errand, place_coords, radius_km=5.0,
+        )
+        if not matched:
+            hint = _state.errand.get("hint", "")
+            return {
+                "text": f"还没到。这封信要送到{hint}的地方。再走走。",
+                "data": {"delivered": False},
+            }
+        # Delivered
+        now = _state.now() or datetime.now(timezone.utc)
+        journal_entry = errands.build_delivery_journal(
+            _state.errand, matched,
+            _state.errand.get("taken_at", now.isoformat()), now,
+        )
+        sender = _state.errand.get("sender", "无名")
+        recipient = _state.errand.get("recipient_desc", "")
+        text = (
+            f"你把信交给了{matched}的人。「{sender}托的。」"
+            f"对方接过信,点了点头。"
+            f"\n{journal_entry}"
+        )
+        _state.errand = None
+        _state.journey_log.append({
+            "kind": "delivery",
+            "text": journal_entry,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        })
+        _record_footprint("deliver", journal_entry)
+        _state.save()
+        return {"text": text, "data": {"delivered": True, "place": matched, "journal": journal_entry}}
+
+    if kind == "chain":
+        # Chain delivery: bury at current spot advances the chain
+        text = "铁盒埋下了。里面有一张字条。"
+        _state.errand = None
+        _state.save()
+        return {"text": text, "data": {"delivered": True, "chain": True}}
+
+    return {"text": "不知道怎么处理这个差事。", "data": {"error": "unknown_kind"}}
+
+
+def _build_place_coords() -> dict[str, tuple[float, float]]:
+    """Build a place→coords map from explorable_index for errand delivery."""
+    import json as _json
+    import pathlib as _pathlib
+    fp = _pathlib.Path(__file__).resolve().parent / "data" / "explorable_index.json"
+    if not fp.exists():
+        return {}
+    try:
+        data = _json.loads(fp.read_text(encoding="utf-8"))
+        coords = {}
+        for name, info in data.get("places", {}).items():
+            plat = info.get("lat")
+            plon = info.get("lon")
+            if plat is not None and plon is not None:
+                coords[name] = (plat, plon)
+        return coords
+    except Exception:
+        return {}
 
 
 @mcp.tool()
@@ -3809,8 +4199,33 @@ def talk_impl(question: str | None = None) -> dict:
         "路", "怎么走", "方向", "在哪", "哪里",
         "节日", "节", "传言", "风声", "传闻", "听说",
     ))
+    # ── Card 43: people notebook hook (first successful talk) ───────
+    _nb_first_talk = (_state.talk_count == 0)
     if not is_knows:
         _state.talk_count += 1
+
+    # Card 42: rumor-based letter pickup — person with knows.rumor mentioning 信
+    knows = entry.get("knows", {})
+    if (knows.get("type") == "rumor"
+            and question and any(k in question for k in ("信", "带", "邮", "差事"))
+            and not _state.errand
+            and not _state.errand_letter_taken_this_journey):
+        letter = errands.pick_letter(_rng)
+        if letter:
+            _state.errand = errands.take_letter(letter, _state.now() or datetime.now(timezone.utc))
+            _state.errand_letter_taken_this_journey = True
+            reply += f"\n「对了,这里有封信。{letter['sender']}托的,给{letter['recipient']}。你顺路就带一趟。」你把信接了过来。"
+
+    # ── Card 43: people notebook hook (record on first talk) ───────
+    if _nb_first_talk:
+        try:
+            _lat, _lon = _state.pos
+            _nb_env = dict(_state.last_env or {})
+            _nb_env["_dt"] = _state.now()
+            notebook_mod.record_with_env("people", person, place, _nb_env, _lat)
+        except Exception:
+            pass
+
     _state.save()
 
     _log_journey_event("talk", f"{person}@{place}: {reply[:30]}")

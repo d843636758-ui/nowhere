@@ -885,10 +885,8 @@ def render(
     global _CURRENT_BIOME
     _CURRENT_BIOME = biome or ""
     # Pass recent_touch to terrain handler via module-level variable
-    # _RECENT_TOUCH persists across calls for cross-call dedup
     global _RECENT_TOUCH
-    if recent_touch:
-        _RECENT_TOUCH.update(recent_touch)
+    _RECENT_TOUCH = recent_touch or set()
     return handler(payload, prev, rng)
 
 
@@ -1245,7 +1243,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             elev_clause=elev_clause,
         )
 
-    # Append touch description (filter out recently used, auto-trim on exhaustion)
+    # Append touch description (filter out recently used)
     touch_pool = _TOUCH_BY_SURFACE.get(surface_key, [])
     if touch_pool:
         recent = _RECENT_TOUCH
@@ -1253,20 +1251,10 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             fresh = [t for t in touch_pool if t not in recent]
             if fresh:
                 touch_pool = fresh
-            else:
-                # Pool exhausted — trim to (pool_size - 1) to ensure 1 fresh item
-                keep = len(touch_pool) - 1
-                to_remove = list(_RECENT_TOUCH)[:len(_RECENT_TOUCH) - keep]
-                for item in to_remove:
-                    _RECENT_TOUCH.discard(item)
-                fresh = [t for t in touch_pool if t not in _RECENT_TOUCH]
-                if fresh:
-                    touch_pool = fresh
         pick = rng.choice(touch_pool)
-        _RECENT_TOUCH.add(pick)
         result += pick + "。"
 
-    # Append smell description (filter out recently used, auto-trim on exhaustion)
+    # Append smell description (filter out recently used)
     smell_pool = _SMELL_BY_BIOME.get(biome, _SMELL_BY_BIOME.get(surface_key, []))
     if smell_pool:
         recent = _RECENT_TOUCH
@@ -1274,17 +1262,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             fresh = [s for s in smell_pool if s not in recent]
             if fresh:
                 smell_pool = fresh
-            else:
-                keep = len(smell_pool) - 1
-                to_remove = list(_RECENT_TOUCH)[:len(_RECENT_TOUCH) - keep]
-                for item in to_remove:
-                    _RECENT_TOUCH.discard(item)
-                fresh = [s for s in smell_pool if s not in _RECENT_TOUCH]
-                if fresh:
-                    smell_pool = fresh
-        pick = rng.choice(smell_pool)
-        _RECENT_TOUCH.add(pick)
-        result += pick + "。"
+        result += rng.choice(smell_pool) + "。"
 
     # 海拔省略后模板可能留下"。。"
     result = result.replace("。。", "。")

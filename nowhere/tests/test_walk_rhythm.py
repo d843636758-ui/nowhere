@@ -129,12 +129,18 @@ def test_walk_10_steps_no_repeated_touch():
             result = asyncio.run(server.walk_impl("N", 2.0))
             step_texts.append(result["text"])
 
-    # Check that no touch sentence from the pool appears more than once
+    # Check that no touch sentence repeats within the dedup window (pool=6, window=5)
+    # Over 10 steps with pool of 6, max 2 appearances per sentence (one per cycle)
     from nowhere.describe import _TOUCH_BY_SURFACE
     touch_pool = _TOUCH_BY_SURFACE.get("grass", [])
     for touch_sent in touch_pool:
         count = sum(1 for t in step_texts if touch_sent in t)
-        assert count <= 1, f"Touch sentence '{touch_sent}' appeared {count} times"
+        assert count <= 2, f"Touch sentence '{touch_sent}' appeared {count} times (pool=6, 10 steps)"
+    # Also verify no consecutive repeats
+    for i in range(len(step_texts) - 1):
+        for ts in touch_pool:
+            if ts in step_texts[i] and ts in step_texts[i + 1]:
+                assert False, f"Touch '{ts}' repeated in consecutive steps {i+1} and {i+2}"
 
 
 def test_walk_glue_word_variation():
