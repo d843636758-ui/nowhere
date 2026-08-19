@@ -593,13 +593,15 @@
     "name_hint": "新西兰",
     "lat": -40.9006,
     "lon": 174.886,
-    "biome": "city"
+    "biome": "city",
+    "surface": "urban"
   },
   {
     "name_hint": "阿皮亚",
     "lat": -13.8333,
     "lon": -171.75,
-    "biome": "city"
+    "biome": "city",
+    "surface": "urban"
   },
   {
     "name_hint": "塔林",
@@ -875,7 +877,8 @@
     "name_hint": "贝鲁特",
     "lat": 33.8938,
     "lon": 35.5018,
-    "biome": "city"
+    "biome": "city",
+    "surface": "urban"
   },
   {
     "name_hint": "帕特森",
@@ -1206,7 +1209,8 @@
     "lat": -41.2865,
     "lon": 174.7762,
     "biome": "city",
-    "elev_m": 0
+    "elev_m": 0,
+    "surface": "urban"
   },
   {
     "name_hint": "重庆",
@@ -1446,7 +1450,8 @@
     "name_hint": "珍珠港",
     "lat": 21.3445,
     "lon": -157.9747,
-    "biome": "city"
+    "biome": "city",
+    "surface": "urban"
   },
   {
     "name_hint": "马嵬坡",
@@ -1858,9 +1863,10 @@
   },
   {
     "name_hint": "耶路撒冷",
-    "lat": 31.7683,
-    "lon": 35.2137,
-    "biome": "city"
+    "lat": 31.7767,
+    "lon": 35.2345,
+    "biome": "city",
+    "surface": "urban"
   },
   {
     "name_hint": "屋久岛",

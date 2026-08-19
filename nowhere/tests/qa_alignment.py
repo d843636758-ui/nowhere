@@ -1120,38 +1120,38 @@ _COASTAL_CITIES = [
 ]
 
 
-def _check_ocean_content(lat, lon, lc_data, hum_places):
-    """Check if any localcolor/humanities data exists near an ocean coordinate.
+def _check_ocean_content(lat, lon, lc_data, hum_places, place_name):
+    """Check if any localcolor/humanities data exists for a specific place.
 
-    Returns (lc_hits, hum_hits, enc_hits) counts.
-    Since data is keyed by place name (not coordinates), ocean points
-    will almost always have zero hits.
+    When walking into the ocean from a coastal city, the place_name stays
+    as the coastal city. We check if that city has any content cards.
+    Returns (lc_hits, hum_hits, enc_hits) counts for that specific place.
     """
     lc_hits = 0
     hum_hits = 0
     enc_hits = 0
 
-    # localcolor: keyed by place name, so check all places for proximity
-    # (in practice, ocean coords won't match any city name)
-    for place, entry in lc_data.items():
-        # Check if any localcolor categories have content
+    # localcolor: check if the specific place has any cards
+    if place_name in lc_data:
+        entry = lc_data[place_name]
         for cat in ("物产", "声音", "痕迹", "美食", "节律", "感受", "植被"):
             items = entry.get(cat, [])
             if items:
-                lc_hits += 1
-                break
+                lc_hits += len(items) if isinstance(items, list) else 1
 
-    # humanities: keyed by place name
-    for place, entry in hum_places.items():
-        if place.startswith("_"):
-            continue
-        if not isinstance(entry, dict):
-            continue
-        for cat in ("事件", "人物", "作品"):
-            cards = entry.get(cat, [])
-            if cards:
-                hum_hits += 1
-                break
+    # humanities: check if the specific place has any cards
+    if place_name in hum_places:
+        entry = hum_places[place_name]
+        if isinstance(entry, dict):
+            for cat in ("事件", "人物", "作品"):
+                cards = entry.get(cat, [])
+                if cards:
+                    hum_hits += len(cards) if isinstance(cards, list) else 1
+
+    # encounters: check if there's any encounter data for the biome
+    # (In the real system, encounters are biome-based, not place-based)
+    # We'll count this as 0 for ocean since there's no ocean-specific encounter file
+    enc_hits = 0
 
     return lc_hits, hum_hits, enc_hits
 
@@ -1183,13 +1183,13 @@ def audit_10_ocean_dead_zone():
         # Check content at the 10th step (deep ocean)
         deep_lat, deep_lon = ocean_steps[-1]
         lc_hits, hum_hits, enc_hits = _check_ocean_content(
-            deep_lat, deep_lon, lc_data, hum_places
+            deep_lat, deep_lon, lc_data, hum_places, city_name
         )
 
         # Also check intermediate steps to see when content drops to zero
         first_zero_step = None
         for step_idx, (lat, lon) in enumerate(ocean_steps, 1):
-            lc_h, hum_h, enc_h = _check_ocean_content(lat, lon, lc_data, hum_places)
+            lc_h, hum_h, enc_h = _check_ocean_content(lat, lon, lc_data, hum_places, city_name)
             if lc_h == 0 and hum_h == 0 and enc_h == 0:
                 first_zero_step = step_idx
                 break

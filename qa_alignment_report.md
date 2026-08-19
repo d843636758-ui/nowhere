@@ -478,11 +478,222 @@
 - [人审] **布鲁塞尔** (人物): 维基百科无 '布鲁塞尔' 条目, 无法交叉验证 (年份: 1920 (1920年代,周恩来在布鲁塞尔))
   - 文案: "1920年代,周恩来在布鲁塞尔参加旅欧中国少年共产党的会议。二十岁出头,西装笔挺,法语流利。他在巴黎和布鲁塞尔之间来回,一边组织革命一边写文章。后来他成了中国的"
 
+## 9. 电台流腐烂 (Radio Stream Decay)
+
+总检测电台: 101
+死亡流数: 81
+
+### 死亡流列表
+
+- [实锤] **Worldwide FM**: HTTP 404
+  - URL: https://worldwidefm.net/stream
+- [实锤] **BBC World Service**: HTTP 400
+  - URL: https://stream.live.vc.bbcmedia.co.uk/bbc_world_service
+- [实锤] **Jazz FM**: HTTP 404
+  - URL: https://edge-audio-03-gos2.sharp-stream.com/jazzfm.mp3
+- [实锤] **FIP**: <urlopen error timed out>
+  - URL: https://icecast.radiofrance.fr/fip-midfi.mp3
+- [实锤] **NRK P1**: <urlopen error timed out>
+  - URL: https://lyd.nrk.no/nrk_radio_p1_ostlandssendingen_mp3_h
+- [实锤] **NRK P2**: <urlopen error timed out>
+  - URL: https://lyd.nrk.no/nrk_radio_p2_mp3_h
+- [实锤] **NRK Tromso**: <urlopen error timed out>
+  - URL: https://lyd.nrk.no/nrk_radio_tromso_mp3_h
+- [实锤] **RUV Ras 1**: HTTP 400
+  - URL: http://netradio.ruv.is/ras1.mp3
+- [实锤] **KCRW**: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostn
+  - URL: https://kcrw.streamguys1.com/kcrw_128k_mp3_on_air
+- [实锤] **CBC Radio One**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://cbcliveradio.akamaized.net/hls/live/2042825/CLB/master.m3u8
+- [实锤] **Radio Nova CZ**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://broadcast.radioteka.cz/radionova128.mp3
+- [实锤] **SBS PopAsia**: <urlopen error timed out>
+  - URL: https://live-radio01.mediahubaustralia.com/2TALK/mp3
+- [实锤] **Radio New Zealand**: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostn
+  - URL: https://radionz-ice.streamguys.com/rnz-national.mp3
+- [实锤] **Fiji Broadcasting**: HTTP 404
+  - URL: https://www.fbc.com.fj/radio/stream
+- [实锤] **KBS Classic FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://serenekbsclassic.kbs.co.kr/api/mini/pc/kbs_classic.m3u8
+- [实锤] **NHK Radio 1**: HTTP 400
+  - URL: https://nhkradioakr-i.akamaihd.net/hls/live/2017851/nhkradirak/master.m3u8
+- [实锤] **ANTV**: <urlopen error timed out>
+  - URL: https://lives.antv.gov.vn/channel/antv/channel/antv_480p/chunks.m3u8
+- [实锤] **MCOT Radio**: <urlopen error timed out>
+  - URL: https://radio.mcot.net/mcot-radio/stream
+- [实锤] **RRI Jakarta**: <urlopen error timed out>
+  - URL: https://stream.rri.co.id/jakarta/stream
+- [实锤] **KBC Radio**: <urlopen error timed out>
+  - URL: https://live.kbc.co.ke/kbc-radio
+- [实锤] **SABC Radio**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/SABCRADIO1.mp3
+- [实锤] **CRTV Radio**: HTTP 404
+  - URL: https://www.crtv.cm/radio/stream
+- [实锤] **All India Radio**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://airnewsenglish.akamaized.net/hls/live/2018529/airnewsenglish/english/playlist.m3u8
+- [实锤] **Radio Jordan**: HTTP 404
+  - URL: https://www.jrtv.gov.jo/radio/stream
+- [实锤] **Dubai FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://dubai1016fm.com/stream
+- [实锤] **VOA Persian**: <urlopen error timed out>
+  - URL: https://av.voanews.com/VOA_Persian_TV/VOA_Persian_TV.isml/playlist.m3u8
+- [实锤] **Radio Nacional do Brasil**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.radiodifusao.fm/rnb
+- [实锤] **Radio Nacional Argentina**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://streaming.radionacional.gob.ar/rn.mp3
+- [实锤] **RPP Noticias**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.rpp.pe/rpp.mp3
+- [实锤] **Radio Deejay**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://radiodeejay-lh.akamaized.net/live/deejay/stream.mp3
+- [实锤] **Radio Capital**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://radiocapital-lh.akamaized.net/live/capital/stream.mp3
+- [实锤] **TRT Radio 1**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://trt-radio-1.medya.trt.com.tr/live
+- [实锤] **TRT FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://trt-fm.medya.trt.com.tr/live
+- [实锤] **Power Turkey**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://powerturk-live.perrystream.com/stream
+- [实锤] **TRT Radio 1**: <urlopen error timed out>
+  - URL: https://radioyayin.trt.net.tr/radyo1/radyo1_128.mp3
+- [实锤] **TRT FM**: <urlopen error timed out>
+  - URL: https://radioyayin.trt.net.tr/trtfm/trtfm_128.mp3
+- [实锤] **Power FM**: HTTP 404
+  - URL: https://listen.powerapp.com.tr/powerfm/mpeg/128/home
+- [实锤] **Metro FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://listen.radyometro.com.tr/metrofm/mpeg/128/home
+- [实锤] **ERA Sport**: HTTP 404
+  - URL: https://radiostreaming.ert.gr/era-sport
+- [实锤] **Ukrainian Radio 1**: <urlopen error timed out>
+  - URL: https://radio.nrcu.gov.ua:8443/stream1
+- [实锤] **Radio Promin**: <urlopen error timed out>
+  - URL: https://radio.nrcu.gov.ua:8443/stream3
+- [实锤] **RCN Radio**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/RCNRADIO.mp3
+- [实锤] **Radio Programas del Peru**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.rpp.pe/radioprogramas.mp3
+- [实锤] **Radio Nacional de Chile**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://streaming.rtvc.cl/radio-nacional/live.mp3
+- [实锤] **Radio Agricultura**: <urlopen error timed out>
+  - URL: https://streaming.radioagricultura.cl/live.mp3
+- [实锤] **Radio Mitre**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/RADIOMITRE.mp3
+- [实锤] **Continental**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/CONTINENTAL.mp3
+- [实锤] **CBN**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.cbn.com.br/cbn_rj.mp3
+- [实锤] **Jovem Pan**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.jfradios.com/jovempan
+- [实锤] **Radio Formula**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/RADIOFORMULA.mp3
+- [实锤] **Nile FM**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/NILEFM.mp3
+- [实锤] **Nogoum FM**: HTTP 404
+  - URL: https://playerservices.streamtheworld.com/api/livestream-redirect/NOGOUMFM.mp3
+- [实锤] **Radio Mars**: HTTP 404
+  - URL: https://www.radiomars.ma/stream
+- [实锤] **SNRT**: HTTP 404
+  - URL: https://www.snrt.ma/radio/stream
+- [实锤] **Wazobia FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.wazobia.com/wazobiafm
+- [实锤] **Cool FM**: <urlopen error [SSL: TLSV1_UNRECOGNIZED_NAME] tlsv1 unrecognized name (_ssl.c:10
+  - URL: https://stream.coolfm.com/coolfm
+- [实锤] **Capital FM**: <urlopen error timed out>
+  - URL: https://stream.capitalfm.co.ke/capitalfm
+- [实锤] **Kiss FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.kissfmkenya.com/kissfm
+- [实锤] **Fana FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.fanafm.com.fanafm/fanafm
+- [实锤] **Sheger FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.shegerfm.com/shegerfm
+- [实锤] **Joy FM**: <urlopen error [Errno 11002] getaddrinfo failed>
+  - URL: https://stream.joyonline.com/joyfm
+- [实锤] **Citi FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.citifmonline.com/citifm
+- [实锤] **MBC FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.mbc.net/mbcfm
+- [实锤] **Rotana Radio**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.rotana.com/rotanaradio
+- [实锤] **Radio Sawa**: <urlopen error timed out>
+  - URL: https://av.voanews.com/ka-341096-1/ka-341096-1.isml/playlist.m3u8
+- [实锤] **Al Rasheed Radio**: <urlopen error timed out>
+  - URL: https://alrasheedmedia.com/radio/stream
+- [实锤] **IRIB Radio 1**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.irib.ir/radio1
+- [实锤] **Radio Javan**: HTTP 403
+  - URL: https://www.radiojavan.com/stream
+- [实锤] **FM 101**: HTTP 403
+  - URL: https://stream.pbc.gov.pk/fm101
+- [实锤] **Radio Pakistan**: HTTP 403
+  - URL: https://stream.pbc.gov.pk/radiopakistan
+- [实锤] **Bangladesh Betar**: <urlopen error The handshake operation timed out>
+  - URL: https://www.betar.gov.bd/radio/stream
+- [实锤] **Radio Foorti**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.radiofoorti.com/radiofoorti
+- [实锤] **Radio Myanmar**: <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostn
+  - URL: https://www.mrtv.gov.mm/radio/stream
+- [实锤] **City FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://cityfm.com.mm/stream
+- [实锤] **National Radio of Cambodia**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://www.rtk.gov.kh/radio/stream
+- [实锤] **WMCN FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://wmcn.com.kh/stream
+- [实锤] **Radio Malaysia**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.rtm.gov.my/radiomalaysia
+- [实锤] **Hot FM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://stream.hotfm.com.my/hotfm
+- [实锤] **DZMM**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://dzmm.abs-cbn.com/stream
+- [实锤] **DZRH**: HTTP 404
+  - URL: https://dzrh.com.ph/stream
+- [实锤] **Radio Nacional Bolivia**: <urlopen error [Errno 11001] getaddrinfo failed>
+  - URL: https://www.rnbolivia.com/radio/stream
+
+## 10. 海上死寂 (Ocean Dead Zone)
+
+检测沿海城市: 8
+内容黑洞数: 0
+
+- [可疑] **悉尼**: 从 悉尼 往海里走10步, 但仍有内容: localcolor=15, humanities=4
+- [可疑] **迈阿密**: 从 迈阿密 往海里走10步, 但仍有内容: localcolor=10, humanities=3
+- [可疑] **里斯本**: 从 里斯本 往海里走10步, 但仍有内容: localcolor=10, humanities=2
+- [可疑] **开普敦**: 从 开普敦 往海里走10步, 但仍有内容: localcolor=15, humanities=3
+- [可疑] **东京**: 从 东京 往海里走10步, 但仍有内容: localcolor=15, humanities=14
+- [可疑] **香港**: 从 香港 往海里走10步, 但仍有内容: localcolor=0, humanities=7
+- [可疑] **旧金山**: 从 旧金山 往海里走10步, 但仍有内容: localcolor=15, humanities=5
+- [可疑] **雅典**: 从 雅典 往海里走10步, 但仍有内容: localcolor=5, humanities=6
+
+## 11. 记忆膨胀 (Memory Bloat)
+
+总发现: 7
+
+### 实锤 (1)
+
+- **geocode._geocode_cache**: 模块级 dict, 无 TTL, 无 eviction, 每次 geocode.lookup() 新地名都会增长
+  - 证据: `_geocode_cache: dict[str, tuple[float, float] | None] = {}`
+
+### 可疑 (3)
+
+- **server._state (WorldState)**: 每次 walk/open_door 都调用 _state.save(), journey.json 包含 path/postcards/messages 等累积数据
+  - 证据: `_state.save() called in walk_impl, open_door, wait_impl, look_around`
+- **placememory.footprints**: 每次 walk/listen/look 都记录 footprint, 无大小限制
+  - 证据: `record_footprint() called in walk_impl, listen_impl, look_around_impl`
+- **server._state.seen_cards / seen_humanities**: 每次触发 localcolor/humanities 卡都添加到 seen 集合, 跨门保留, 无清理
+  - 证据: `_state.seen_cards.add() in walk_impl, no .clear() found`
+
+### 人审 (3)
+
+- **server._load_scene_file**: 用 setattr 缓存场景文件, 但场景文件数量固定(~10个), 实际有界
+  - 证据: `setattr(_load_scene_file, cache_key, result)`
+- **server._SOUVENIRS_BY_PLACE**: 从 souvenirs_by_place.json 加载, 只加载一次, 有界
+  - 证据: `_SOUVENIRS_BY_PLACE: dict | None = None`
+- **server._DISCOVERY_CACHE**: 从 scene_walk_discovery.txt 加载, 只加载一次, 有界
+  - 证据: `_DISCOVERY_CACHE: list[str] | None = None`
+
 ---
 
 ## 总结与优先级建议
 
-**总发现数: 210**
+**总发现数: 306**
 
 | 亚种 | 发现数 | 最高严重度 |
 |------|--------|-----------|

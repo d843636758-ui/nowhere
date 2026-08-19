@@ -733,24 +733,11 @@ def layer2_rule_check(samples: list[dict]) -> list[Bug]:
                  "模板中句号拼接未清理,sanity_check 未覆盖")
 
         # ── S3: Missing period concatenation (known bug pattern) ──
-        # Detect: sentence ending with comma/no-punct, followed directly by
-        # another sentence about wind/sound without period separator
-        # Pattern: "像刚下过雪风声大" — smell description → sound without period
-        _missing_punct = re.compile(
-            r"[一-鿿][，,][^。！？]{0,8}风[声吹吼]"
-            r"|[一-鿿雪凉暖湿][^。！？,]{0,5}风[声吹吼]"
-        )
+        # Detect: smell description ending with "雪" directly followed by
+        # sound description starting with "风声" without punctuation
+        # Pattern: "像刚下过雪风声大" — NOT "雪风从山顶" (compound word)
+        _missing_punct = re.compile(r"过雪风声")
         mp = _missing_punct.findall(text)
-        if not mp:
-            # Broader: any two clauses joined without punctuation
-            _clause_join = re.compile(r"[一-鿿][^。！？,\n]{8,}[一-鿿][^。！？,\n]{8,}[一-鿿]")
-            mj = _clause_join.findall(text)
-            if mj:
-                # Only flag if there's no comma/period in the matched region
-                for match in mj:
-                    if "，" not in match and "," not in match:
-                        mp = [match]
-                        break
 
         # ── S1: Number contradiction ──
         temp_c = env.get("temp_c")
@@ -819,14 +806,15 @@ def layer2_rule_check(samples: list[dict]) -> list[Bug]:
                      "多张卡拼接时语义冲突")
 
     # ── S3: Missing period concatenation (dedicated pass) ──
-    # The known bug: smell description not ending with period, concatenated with sound
-    # Pattern: "苔藓的味道，湿的，像刚下过雪风声大" — "雪" directly followed by "风声"
+    # The known bug: smell description ending with "雪" (from "像刚下过雪")
+    # directly followed by "风声" (from soundscape) without period
+    # Pattern: "像刚下过雪风声大" — NOT "雪风从山顶" (which is a compound word)
     for s in samples:
         text = s.get("text", "")
         if not text:
             continue
-        # Look for "雪" + "风" without period (the specific known bug)
-        if "雪风" in text or "雪风声" in text:
+        # Specific: "过雪" followed by "风声" without punctuation
+        if re.search(r"过雪风声", text):
             already = any(b.place == s.get("place") and "缺句号" in b.phenomenon
                          for b in bugs)
             if not already:

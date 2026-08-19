@@ -277,6 +277,92 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
+## 卡32:卡源级差(手写层优先,烘焙层降级)— 立刻可发
+
+只许改:nowhere/localcolor.py、nowhere/baked.py、nowhere/tests/test_localcolor.py
+
+背景(脑实测,audit_cards_20260820.md):拉普兰连抽 12 张,手写卡 4 张/烘焙模板句 8 张——455 地手写心血和收割模板平权同池。写得好的地方反而烂卡渗漏更多(手写层先抽空,烘焙占比升高)。
+
+1. **级差抽卡**:localcolor.draw() 两档——手写层(该地五类卡)没抽空时,烘焙卡不进池或权重×0.2;手写层空了烘焙才顶上("先吃现房,再吃罐头")。饭点美食加权和级差叠乘。
+2. **外文名过滤**:baked.render_food:zh 为空或纯 ASCII 名 → 返回 None,draw() 滤掉不出卡(同卡5 规矩,这里在渲染层再拦一道)。"Grytbit/äggost"这种裸英文进中文散文=断气。
+3. **模板壳减肥**:_FOOD_TEMPLATES 的万能尾句("在这里,吃饭不是将就的事"/"名字记不住没关系,味道会替你记住")全删——空话;无 desc 的模板(_FOOD_TEMPLATES_NODESC)整个砍掉,没有 desc 的食物不出卡。壳剩前 3 条,尾部不再补话。
+4. test_localcolor.py 加:同地连抽到手写层空,期间烘焙卡占比 <20%;zh 空的美食卡永不出现;渲染结果不含"在这里,吃饭不是将就的事"。
+
+验收:新测试绿;重跑 audit_cards 的拉普兰 12 连抽,手写 4 张全出在前 6 抽内。
+
+---
+
+## 卡33:通用场景池按 biome 门禁 + 深度扩池 — 立刻可发
+
+只许改:nowhere/describe.py、nowhere/hydrology.py、nowhere/data/scene_water_features.txt、nowhere/data/scene_walk_discovery.txt、nowhere/tests/test_describe.py
+
+背景:通用场景文件是"为了方便随便匹配"的重灾区——32 句 water_features 里码头/海运句在内陆苔原渲染出来;walk_discovery 66 句全球共享,重复感的另一半来源(变体池消耗曲线见卡24 量化)。
+
+1. **句级 biome 标注**:scene_water_features.txt 每句行首加 tag(#河 #湖 #码头 #海),渲染层按 feature type + 距海(hydrology 数据有 distance_km;拿不到就用 terrain.surface 探 10km 内有无水_ocean)过滤——内陆永远不进 #码头 #海 句。tag 解析进 _load_scenes(向后兼容:无 tag 句算 #任意)。
+2. **hydrology 过滤索引修复**(审计低8):代码注释声称的行号索引与真实文件对不上,_LAKE_IDX={1,6} 删错句——改成按 tag 选句,索引死代码删掉。
+3. **发现池扩容**:scene_walk_discovery.txt 66→130 句,新增句按 biome 分组(#城 #林 #漠 #山 #海 #极),_pick_discovery 按 current biome 过滤(拿不到 biome 用 surface 映射)。新句文案照 WRITING_PROMPT(卡31)声口,每句独立成景,禁模板壳。
+4. test_describe.py:内陆点渲染 water_features 永不含"码头/卸货/船";tag 过滤后各 biome 池 ≥8 句;Discovery 同 biome 连抽 8 次去重率 ≥6/8。
+
+验收:新测试绿 + test_hydrology/test_regression 绿。
+
+---
+
+# 质量层二期(2026-08-20,旋复:"文本质量如何提升")
+
+理论:文本质量 = 杆 × 卡 × 缝 × 回路。杆已有(卡31),这组补另外三个角。
+
+## 卡34:全卡打分普查(census)— 立刻可发
+
+只许新建:nowhere/tests/qa_census.py、qa_census_report.md(仓库根)
+
+卡24 是巡逻(抽样),这张是普查(全量)。给**每张卡**打分,产出差距地图。
+
+1. 裁判先用 qa_lqa_golden.json 校验(一致率 ≥80% 才上岗,达不到换 prompt 重校;裁判≠生成方,key 环境变量读,不许进代码)。
+2. 全量打分对象:localcolor.json + 区域文件 + humanities.json 全部 films/historical 的每张卡,5 分制:
+   - 5=杆上(旧北京/敦煌级,可当新样例)
+   - 4=好(有地方血肉,声口对)
+   - 3=能用(信息对但平,像资料卡)
+   - 2=差(模板壳/空泛/断气)
+   - 1=有害(错配/编造/英文裸进)
+3. 输出 qa_census_report.md:总分分布直方图、**按地平均分排名**(最好 20 / 最差 40)、每张 <3 分的卡列出(卡原文+扣分理由一句话)。
+4. **产出是重写优先清单**:按"地平均分×卡数"排出最值得重写的 30 个地——这是下一波重写工程的靶子,不许自己动手改卡。
+
+验收:全量覆盖(卡数对得上文件计数);golden 校验有数字;最差 40 地清单成型。
+
+---
+
+## 卡35:缝合工坊(seam quality)— 立刻可发
+
+只许改:nowhere/describe.py、nowhere/server.py、nowhere/tests/test_seam.py(新建)
+
+背景:卡再好,拼起来也要顺。已实锤的缝病:落地段缺句号("像刚下过雪风声大")、walk 转移句("走着走着,草地,一马平川")混进落地段、全半角标点混用、人称漂移。这些病**重写一万张卡都治不了**,只能在缝上治。
+
+1. **标点规整器**:`_normalize_prose(text)`——拼接处缺句号补句号(前段尾字是中文且后段开头非标点→补"。")、全半角统一(英文句读转中文语境用)、连续句号压成一个、多余空格压掉。进 describe.compose() 和 server 各拼段处(落地/走/wait 一处封装,处处调用)。
+2. **段落语义守卫**:compose 前扫 sections——"走着走着"类转移短语只许出现在 walk 文本(落地段出现即剥除);开场段(establish)禁入"你继续/又走了一段"类续行句。规则表形式,可扩展。
+3. **人称统一**:段落渲染链出口统一"你"——扫 sections 里孤立的"他/她/它"开头句(卡内部自带的不动,只管拼接产生的)。
+4. **缝合烟测**:test_seam.py 固定 seed 跑 8 地×落地+3 walk,断言输出无"雪风声"式无标点拼接(mock 段尾构造)、无转移句进开场、标点归一。
+5. 修完把"像刚下过雪"案例跑一遍进测试(回归锚)。
+
+验收:新测试绿;重跑卡22 渲染链探针,占位符/双句号/标点混用清零。
+
+---
+
+## 卡36:品味回路(旋复盲评,轻流程)
+
+只许新建:docs/TASTE_LOOP.md、nowhere/tests/qa_taste_sample.py
+
+杆不是文档写死的,是你读出来的。把"你骂一句我修一批"变成制度:
+
+1. `python nowhere/tests/qa_taste_sample.py`:从渲染输出里随机抽 10 段(盲评:不带地名标注,打乱顺序,存 docs/taste_samples/2026-08-XX.md)。
+2. 旋复读,每段一个字评:好/平/差(愿意多写更好)。
+3. 评完的段回填:平/差的进 qa_lqa_golden.json 当新坏样例,好的进新好样例——golden 长大,裁判越判越像你。
+4. docs/TASTE_LOOP.md 写清这个循环怎么跑、多久一次(建议:每波大改后一次)、回填格式。**不自动执行,旋复手动触发。**
+5. 铁律:这个流程的产物只进 golden set,不直接改卡——改卡走卡34 的优先清单。
+
+验收:抽样脚本跑通;TASTE_LOOP.md 成文;首次盲评包生成(10 段,等你读)。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py

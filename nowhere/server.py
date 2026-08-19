@@ -806,6 +806,15 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
 
     if not restored and to is None:
         spot = landing.random_spot(_rng)
+        # Nudge if landing spot is on water (unless water destination)
+        nudged = landing.nudge_if_water(
+            spot["lat"], spot["lon"],
+            spot.get("name_hint", ""), spot.get("biome", ""),
+        )
+        spot["lat"] = nudged["lat"]
+        spot["lon"] = nudged["lon"]
+        if nudged.get("water_landing"):
+            spot["water_landing"] = True
         lat, lon = spot["lat"], spot["lon"]
         place_name = spot.get("name_hint", "未知之地")
     elif not restored:
@@ -2518,6 +2527,100 @@ def look_impl(direction: str) -> dict:
         "text": f"往{dir_label}看：{text}",
         "data": {"bearing": bearing, "samples": samples},
     }
+
+
+@mcp.tool()
+def say(text: str) -> dict:
+    """说一句话。世界会记住。"""
+    return say_impl(text)
+
+
+def say_impl(text: str) -> dict:
+    """Save a quote and return a light acknowledgment."""
+    if _state.pos is None:
+        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+    text = text.strip()
+    if not text:
+        return {"text": "你没说话。", "data": {"error": "empty"}}
+    if len(text) > 500:
+        text = text[:500]
+
+    now = _state.now()
+    sim_time = now.isoformat() if now else None
+    _state.quotes.append({
+        "text": text,
+        "place": _state.place_name or "",
+        "pos": list(_state.pos),
+        "sim_time": sim_time,
+    })
+    # FIFO: keep last 50
+    if len(_state.quotes) > 50:
+        _state.quotes = _state.quotes[-50:]
+    _state.save()
+
+    # Log to journey journal
+    _log_journey_event("say", text[:30])
+
+    _ACK_VARIANTS = ["记下了。", "这句话留在这了。", "嗯。世界听到了。", "你说了。风把它带走了。"]
+    ack = _rng.choice(_ACK_VARIANTS)
+    return {"text": ack, "data": {"saved": True}}
+
+
+@mcp.tool()
+def quotes() -> dict:
+    """看看本旅程说过的原话。"""
+    if not _state.quotes:
+        return {"text": "还没说过什么。", "data": {"quotes": []}}
+    parts = []
+    for q in _state.quotes:
+        place = q.get("place", "")
+        t = q.get("text", "")
+        parts.append(f"「{t}」——{place}" if place else f"「{t}」")
+    text = f"本旅程说了 {len(_state.quotes)} 句话。\n" + "\n".join(parts)
+    return {"text": text, "data": {"quotes": _state.quotes}}
+
+
+@mcp.tool()
+def journal() -> dict:
+    """回看本次旅程的时间线。"""
+    slug = journeys.get_active_slug()
+    if not slug:
+        return {"text": "还没有旅程。", "data": {"entries": []}}
+    log_path = journeys._JOURNEYS_DIR / f"{slug}.log.jsonl"
+    if not log_path.exists():
+        return {"text": "旅程日志是空的。", "data": {"entries": []}}
+    try:
+        lines = log_path.read_text(encoding="utf-8").strip().split("\n")
+        entries = [json.loads(line) for line in lines if line.strip()]
+    except Exception:
+        return {"text": "日志读不出来。", "data": {"entries": []}}
+    if not entries:
+        return {"text": "旅程日志是空的。", "data": {"entries": []}}
+    parts = []
+    for e in entries:
+        t = e.get("t", "")
+        kind = e.get("kind", "")
+        summary = e.get("summary", "")
+        parts.append(f"[{t}] {kind}: {summary}")
+    text = "旅程时间线：\n" + "\n".join(parts)
+    return {"text": text, "data": {"entries": entries}}
+
+
+def _log_journey_event(kind: str, summary: str) -> None:
+    """Append an event to the current journey's log file."""
+    slug = journeys.get_active_slug()
+    if not slug:
+        return
+    log_path = journeys._JOURNEYS_DIR / f"{slug}.log.jsonl"
+    journeys._ensure_dir()
+    entry = {
+        "t": datetime.now(timezone.utc).isoformat(),
+        "kind": kind,
+        "pos": list(_state.pos) if _state.pos else None,
+        "summary": summary,
+    }
+    with open(log_path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 # =====================================================================

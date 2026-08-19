@@ -56,19 +56,9 @@ def _load_food_scenes() -> dict[str, str]:
 
 
 _FOOD_TEMPLATES: list[str] = [
-    "点一份{name}。{desc}在这里,吃饭不是将就的事。",
     "{name}。{desc}本地的做法,和别处不一样。",
     "路边就有{name}。{desc}本地人当日常,旅人当特产。",
     "饿了的话,{name}是不会错的选择。{desc}",
-    "{name}。{desc}名字记不住没关系,味道会替你记住。",
-]
-
-_FOOD_TEMPLATES_NODESC: list[str] = [
-    "点一份{name}。在这里,吃饭不是将就的事。",
-    "{name},本地的做法,和别处不一样。",
-    "路边就有{name},本地人当日常,旅人当特产。",
-    "饿了的话,{name}是不会错的选择。",
-    "{name}。名字记不住没关系,味道会替你记住。",
 ]
 
 _FLORA_TEMPLATES: list[str] = [
@@ -92,6 +82,11 @@ def _simp(s: str) -> str:
 
 def _has_cjk(s: str) -> bool:
     return any("一" <= ch <= "鿿" for ch in s)
+
+
+def _is_pure_ascii(s: str) -> bool:
+    """True if every char is printable ASCII (32-126)."""
+    return all(32 <= ord(ch) <= 126 for ch in s)
 
 
 def food_items(country_code: str | None, lat: float = 0, lon: float = 0) -> list[dict]:
@@ -135,8 +130,12 @@ def flora_items(place_name: str | None) -> list[dict]:
     return _flora.get(place_name, [])
 
 
-def render_food(item: dict, rng: random.Random) -> str:
+def render_food(item: dict, rng: random.Random) -> str | None:
     name = _simp(item.get("zh") or item.get("en") or "")
+
+    # 外文名过滤: zh 空或纯 ASCII 名不进中文散文
+    if not name or _is_pure_ascii(name):
+        return None
 
     # 1. Try scene file first (most specific)
     scenes = _load_food_scenes()
@@ -157,8 +156,8 @@ def render_food(item: dict, rng: random.Random) -> str:
     if desc:
         tmpl = rng.choice(_FOOD_TEMPLATES)
         return tmpl.format(name=name, desc=desc)
-    tmpl = rng.choice(_FOOD_TEMPLATES_NODESC)
-    return tmpl.format(name=name)
+    # 无 desc 且无场景匹配 → 不出卡
+    return None
 
 
 def render_flora(item: dict, rng: random.Random) -> str:

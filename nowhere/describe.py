@@ -723,6 +723,22 @@ _MESSAGE_VARIANTS: list[str] = [
     "你不是第一个到这的人。有人说:「{content}」",
 ]
 
+# ── Farewell variants (card 27: peak-end farewell) ──────────────────
+
+_FAREWELL_VARIANTS: list[str] = [
+    "你又看了一眼{place}。然后你转身,门就在那。",
+    "鞋底还沾着这里的土。门在身后合上。",
+    "你停了一秒。风吹过来,带着这里的味道。然后你走了。",
+    "最后看了一眼天。{phase_desc}。门开了。",
+    "你把这里的空气吸了一口,转身。门在等。",
+]
+
+_RETURN_VARIANTS: list[str] = [
+    "你离开时还是{old_season}，现在{new_season}了。",
+    "上次走的时候{old_season}，回来已经是{new_season}。",
+    "{old_season}走的，{new_season}回来的。世界没有等你,但也没走远。",
+]
+
 # ── surface descriptions ─────────────────────────────────────────────
 
 _SURFACE_DESC: dict[str, str] = {

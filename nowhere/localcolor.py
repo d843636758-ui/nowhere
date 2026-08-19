@@ -75,7 +75,8 @@ def draw(
 ) -> dict | None:
     """抽一张没见过的卡 {"category", "text", "key"};抽完或无此地 → None。
 
-    local_hour 在饭点(6-9/11-13/17-21)时美食卡权重翻倍——饭点遇见吃的。
+    两档级差: 手写层(五类卡)没抽空时,烘焙卡权重×0.2;手写层空了,
+    烘焙卡才全权重顶上。饭点美食加权和级差叠乘。
     """
     if not place_name:
         return None
@@ -84,28 +85,35 @@ def draw(
     pool: list[tuple[str, str, str, float]] = []
 
     entry = _load().get(place_name)
+    unseen_handwritten = 0
     has_local_food = False
     if entry:
         for cat in ("物产", "声音", "痕迹", "植被", "美食"):
             for i, text in enumerate(entry.get(cat, [])):
                 key = f"{place_name}/{cat}/{i}"
                 if key not in seen:
+                    unseen_handwritten += 1
                     w = 3.0 if cat == "美食" else 1.0
                     pool.append((cat, key, text, w))
                     if cat == "美食":
                         has_local_food = True
+
+    # 级差: 手写层没空时烘焙卡降权×0.2;空了才全权
+    baked_weight = 1.0 if unseen_handwritten == 0 else 0.2
 
     # 只有本地没有特色食物时，才用国家级食物兜底
     if not has_local_food:
         for i, item in enumerate(baked.food_items(country_code)):
             key = f"{place_name}/烘焙美食/{i}"
             if key not in seen:
-                pool.append(("美食", key, baked.render_food(item, rng), 2.0))
+                rendered = baked.render_food(item, rng)
+                if rendered is not None:
+                    pool.append(("美食", key, rendered, 2.0 * baked_weight))
 
     for i, item in enumerate(baked.flora_items(place_name)):
         key = f"{place_name}/烘焙植被/{i}"
         if key not in seen:
-            pool.append(("植被", key, baked.render_flora(item, rng), 1.0))
+            pool.append(("植被", key, baked.render_flora(item, rng), 1.0 * baked_weight))
 
     if not pool:
         return None

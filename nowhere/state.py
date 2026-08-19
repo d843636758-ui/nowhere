@@ -36,6 +36,9 @@ class WorldState:
         self.seen_cards: set[str] = set()  # 方志已见卡 key
         self.seen_humanities: set[str] = set()  # 人文层已见卡 key
         self.souvenir: dict | None = None  # 身上带的东西 {"name", "from", "desc"}
+        self.quotes: list[dict] = []  # 原话 [{text, place, pos, sim_time}], max 50 FIFO
+        self.mishap_seen: list[str] = []  # 已触发的意外卡 ID
+        self.mishap_tag: str | None = None  # 当前活跃的意外标记
         self.visit_counts: dict[str, int] = {}  # 本次旅程的地方到访次数
         # ── Walk discovery context ────────────────────────────────────
         self.last_surface: str | None = None  # surface from previous step
@@ -51,6 +54,8 @@ class WorldState:
             "discoveries": [],      # things found along the way
             "mood": "neutral",      # current emotional state
         }
+        # ── Journey log (append-only, farewell/return events) ─────────
+        self.journey_log: list[dict] = []
 
     def now(self) -> datetime | None:
         """Return the current simulated UTC time: landed_at + elapsed_hours."""
@@ -74,6 +79,9 @@ class WorldState:
             "seen_cards": list(self.seen_cards),
             "seen_humanities": list(self.seen_humanities),
             "souvenir": self.souvenir,
+            "quotes": self.quotes[-50:],  # keep last 50
+            "mishap_seen": self.mishap_seen,
+            "mishap_tag": self.mishap_tag,
             "postcards": self.postcards[-20:],  # keep last 20
             "radio_station": self.radio_station,
             "radio_pos": list(self.radio_pos) if self.radio_pos else None,
@@ -86,6 +94,7 @@ class WorldState:
             "steps_since_discovery": self.steps_since_discovery,
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
+            "journey_log": self.journey_log[-50:],  # keep last 50 events
         }
 
     @classmethod
@@ -110,6 +119,9 @@ class WorldState:
         s.seen_cards = set(data.get("seen_cards", []))
         s.seen_humanities = set(data.get("seen_humanities", []))
         s.souvenir = data.get("souvenir")
+        s.quotes = data.get("quotes", [])
+        s.mishap_seen = data.get("mishap_seen", [])
+        s.mishap_tag = data.get("mishap_tag")
         s.visit_counts = data.get("visit_counts", {})
         s.last_surface = data.get("last_surface")
         s.last_elevation = data.get("last_elevation", 0.0)
@@ -124,6 +136,7 @@ class WorldState:
         else:
             s.narrative = _default_narrative
         s.recent_scenes = data.get("recent_scenes", [])
+        s.journey_log = data.get("journey_log", [])
         s.postcards = data.get("postcards", [])
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
