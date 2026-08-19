@@ -1048,6 +1048,17 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
                 lat, lon = result
                 place_name = to
 
+        # ── River segment awareness: 长江 → nearest scenic segment ──
+        if to and "长江" in to:
+            segment_hint = ""
+            parts = to.split()
+            if len(parts) > 1:
+                segment_hint = parts[-1]
+            seg = _find_river_segment("长江", segment_hint)
+            if seg:
+                lat, lon = seg["lat"], seg["lon"]
+                place_name = seg["segment_name"]
+
     # ── 2. State init ────────────────────────────────────────────────
     if not restored and resume:
         _state = state_mod.WorldState()
@@ -1101,8 +1112,22 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
 
     # ── 3.5. Water features + SST + marine life ──────────────────────
     water_text = ""
-    # Skip hydrology for now (Overpass API blocked in China)
-    water_features = []
+    # Offline waterway lookup (always available, no network needed)
+    water_features = _offline_water_nearby(lat, lon, radius_km=50)
+    # Try online Overpass as enhancement (silently falls back on failure)
+    try:
+        online_wf = await asyncio.wait_for(hydrology.nearby_water(lat, lon), timeout=5.0)
+        if online_wf:
+            water_features = online_wf
+    except Exception:
+        pass  # offline result already populated
+
+    # Build water feature description from offline data
+    if water_features:
+        water_text = describe.render(
+            "water_features", water_features, None, _rng,
+            biome=_state.biome or "", elevation=env.get("elevation", 0),
+        )
 
     # Sea surface temperature
     sst_text = ""
@@ -1942,8 +1967,16 @@ async def look_around_impl() -> dict:
         content = _strip_code_markers(str(content))
         sections.append(f"有人在这里留了句话：「{content}」")
 
-    # ── 9. Ending: return to original spot ──────────────────────────
-    sections.append("你往回走，回到了原来的地方。")
+    # ── 9. Ending: static closing (no movement verbs) ──────────────
+    _LOOK_CLOSINGS = [
+        "你看完了，收回目光。",
+        "风把刚才的声音又送了一遍。",
+        "你站了一会儿，没动。",
+        "远处有什么动了一下，又停了。",
+        "你把看到的东西在脑子里过了一遍。",
+    ]
+    if _rng.random() < 0.6:
+        sections.append(_rng.choice(_LOOK_CLOSINGS))
 
     # ── Compose ─────────────────────────────────────────────────────
     text = "\n".join(sections)

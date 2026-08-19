@@ -44,6 +44,8 @@ class WorldState:
         self.last_surface: str | None = None  # surface from previous step
         self.last_elevation: float = 0.0  # elevation from previous step
         self.steps_since_discovery: int = 0  # counter for pacing discoveries
+        self.radio_steps_since: int = 999  # steps since last radio mention (start high so first walk sees radio)
+        self.walk_step_counter: int = 0  # total walk steps for rhythm gating
         # ── Scene dedup ─────────────────────────────────────────────
         self.recent_scenes: list[str] = []  # last N scene texts to avoid repetition
         # ── Narrative continuity ──────────────────────────────────────
@@ -92,6 +94,8 @@ class WorldState:
             "last_surface": self.last_surface,
             "last_elevation": self.last_elevation,
             "steps_since_discovery": self.steps_since_discovery,
+            "radio_steps_since": self.radio_steps_since,
+            "walk_step_counter": self.walk_step_counter,
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
             "journey_log": self.journey_log[-50:],  # keep last 50 events
