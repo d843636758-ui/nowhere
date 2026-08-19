@@ -37,3 +37,18 @@ nowhere/final_report.md
 CLAUDE.md
 portal/
 tools/.cache/
+
+# Design docs and reports (local only)
+WORK_CARDS.md
+TESTER_BRIEF.md
+RESEARCH_SURVEY.md
+AUDIT_RECHECK.md
+health_report.md
+qa_*_report.md
+qa_*_report*.md
+docs/CARD_FORMAT.md
+docs/WRITING_PROMPT*.md
+docs/THICKEN_PLAN.md
+docs/TASTE_LOOP.md
+docs/taste_samples/
+nowhere/audit_*.md
