@@ -213,8 +213,8 @@ async def nearby_water(lat: float, lon: float, radius_km: float = 10) -> list[di
 def describe_water(features: list[dict], rng: random.Random, biome: str = "") -> str:
     """Pick the most interesting water feature and render a literary description.
 
-    Returns "" if no features. Uses biome tags from scene_water_features.txt
-    for filtering (replaces dead index-based _LAKE_IDX).
+    Returns "" if no features. Card 33: reads biome-specific product file
+    (scene_water_{biome}.txt). Build time already filtered — runtime zero filtering.
     """
     if not features:
         return ""
@@ -224,38 +224,12 @@ def describe_water(features: list[dict], rng: random.Random, biome: str = "") ->
     ranked = sorted(features, key=lambda f: (priority.get(f["type"], 9), f["distance_km"]))
     feature = ranked[0]
 
-    # Load scene file via shared loader (strips biome tags)
+    # Card 33: read biome-specific product file directly
     from nowhere import describe
-    lines = describe._load_scenes(_SCENE_FILE)
-
-    # Tag-based biome filtering
-    tags_list = describe._BIOME_TAGS_CACHE.get(_SCENE_FILE, [])
-    if lines and tags_list and len(tags_list) == len(lines):
-        # Biome filter
-        if biome:
-            _BIOME_COMPAT: dict[str, set[str]] = {
-                "tundra":   {"#河", "#瀑", "#溪", "#湖"},
-                "desert":   {"#河", "#瀑", "#溪", "#湖"},
-                "coast":    {"#河", "#瀑", "#溪", "#湖", "#码头", "#海"},
-                "mountain": {"#河", "#瀑", "#溪", "#湖"},
-                "rainforest": {"#河", "#瀑", "#溪", "#湖"},
-                "grassland":  {"#河", "#瀑", "#溪", "#湖"},
-                "city":     {"#河", "#瀑", "#溪", "#湖", "#码头"},
-            }
-            allowed = _BIOME_COMPAT.get(biome, set())
-            if allowed:
-                filtered = [s for s, t in zip(lines, tags_list)
-                            if not t or t & allowed]
-                if filtered:
-                    lines = filtered
-
-        # Inland exclusion: no dock/ocean scenes
-        has_ocean = any(f.get("type") == "ocean" for f in features)
-        if not has_ocean:
-            filtered = [s for s, t in zip(lines, tags_list)
-                        if not (t & {"#码头", "#海"})]
-            if filtered:
-                lines = filtered
+    if biome:
+        lines = describe._load_scenes(f"water_{biome}")
+    else:
+        lines = describe._load_scenes(_SCENE_FILE)  # fallback to legacy
 
     if lines:
         text = rng.choice(lines)

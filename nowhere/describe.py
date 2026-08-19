@@ -27,35 +27,12 @@ from typing import Sequence
 _SCENE_DIR = pathlib.Path(__file__).resolve().parent / "data"
 _SCENE_CACHE: dict[str, list[str]] = {}
 
-# ── biome tags for scene filtering (keyed same as _SCENE_CACHE) ───────
-_BIOME_TAGS_CACHE: dict[str, list[set[str]]] = {}
-
-# Valid biome tags used in scene files
+# Valid biome tags for backward-compatible stripping from old scene files
 _VALID_BIOME_TAGS: set[str] = {
     "#河", "#湖", "#码头", "#海", "#瀑", "#溪", "#江",
     "#城", "#林", "#漠", "#山", "#极",
 }
-
-# Biome tag that means "no dock/ocean scenes inland"
-_INLAND_EXCLUDE_TAGS: set[str] = {"#码头", "#海"}
-
 _BIOME_TAG_RE = re.compile(r"(#[^\s]+)\s*")
-
-
-def _strip_biome_tag(line: str) -> tuple[str, set[str]]:
-    """Strip biome tag(s) from line start, return (clean_text, tags).
-
-    Backward compatible: lines without tags return (line, empty set).
-    """
-    tags: set[str] = set()
-    while True:
-        m = _BIOME_TAG_RE.match(line)
-        if m and m.group(1) in _VALID_BIOME_TAGS:
-            tags.add(m.group(1))
-            line = line[m.end():]
-        else:
-            break
-    return line, tags
 
 
 # ── location-specific scene files ([地名] 描述 or 地名 描述) ──────────
@@ -180,36 +157,38 @@ _TROPICAL_SEASON: dict[str, str] = {
 def _load_scenes(name: str) -> list[str]:
     """Load scene variants from a scene_*.txt file, one variant per line.
 
-    Also populates _BIOME_TAGS_CACHE[name] with per-line biome tag sets.
-    Lines starting with a valid biome tag (e.g. #河) are kept; other # lines
-    are treated as comments and skipped. Backward compatible: lines without
-    tags get an empty tag set.
+    Card 33: biome-specific product files (built at build time).
+    Runtime reads the file directly — zero filtering.
+
+    Backward compat: old files with biome tags (#河, #林, etc.) are still
+    supported — tags are stripped from the text.
     """
     if name not in _SCENE_CACHE:
         fp = _SCENE_DIR / f"scene_{name}.txt"
         if fp.exists():
             lines = []
-            tags_list: list[set[str]] = []
             for l in fp.read_text(encoding="utf-8").splitlines():
                 l = l.strip()
                 if not l:
                     continue
-                # Check if line starts with a valid biome tag
-                clean, tags = _strip_biome_tag(l)
-                if not tags and l.startswith("#"):
-                    # Not a biome tag — treat as comment
+                # Backward compat: strip biome tags from old-format files
+                while True:
+                    m = _BIOME_TAG_RE.match(l)
+                    if m and m.group(1) in _VALID_BIOME_TAGS:
+                        l = l[m.end():]
+                    else:
+                        break
+                # Skip comment lines (start with # but not a biome tag)
+                if l.startswith("#"):
                     continue
-                # Strip [location] prefix tags from scene text
-                if clean.startswith("[") and "] " in clean:
-                    clean = clean[clean.index("] ") + 2:]
-                if clean:
-                    lines.append(clean)
-                    tags_list.append(tags)
+                # Strip [location] prefix tags from scene text (legacy compat)
+                if l.startswith("[") and "] " in l:
+                    l = l[l.index("] ") + 2:]
+                if l:
+                    lines.append(l)
             _SCENE_CACHE[name] = lines
-            _BIOME_TAGS_CACHE[name] = tags_list
         else:
             _SCENE_CACHE[name] = []
-            _BIOME_TAGS_CACHE[name] = []
     return _SCENE_CACHE[name]
 
 
@@ -2098,9 +2077,14 @@ def _render_humanities(payload: dict, prev: dict | None, rng: random.Random) -> 
 
 
 def _render_water_features(payload: dict, prev: dict | None, rng: random.Random) -> str:
-    """水文描写: 河流/湖泊/瀑布/溪流。从 scene_water_features.txt 取场景。"""
-    pool = _load_scenes("water_features")
+    """水文描写: 河流/湖泊/瀑布/溪流。
+
+    Card 33: reads biome-specific product file (scene_water_{biome}.txt).
+    Build time already filtered — runtime zero filtering.
+    """
+    biome = _CURRENT_BIOME
     features = payload if isinstance(payload, list) else []
+
     # Build feature set from actual data
     feat_set = set()
     has_named = False
@@ -2115,47 +2099,21 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
             feat_set.add("river")
         if "湖" in ftype or "湖" in fname or "lake" in ftype:
             feat_set.add("lake")
-    # Only use waterfall scenes if there's actually a waterfall
-    # For unnamed lakes/ponds, use lake scenes
     if not feat_set:
         if has_named:
-            feat_set.add("river")  # named water feature, assume flowing
+            feat_set.add("river")
         else:
-            feat_set.add("lake")   # unnamed ponds/lakes
+            feat_set.add("lake")
 
-    # Tag-based biome filtering (replaces dead index-based _LAKE_IDX)
-    biome = _CURRENT_BIOME
-    tags_list = _BIOME_TAGS_CACHE.get("water_features", [])
-    if pool and tags_list and len(tags_list) == len(pool):
-        # Biome filter: only keep scenes whose tags match current biome
-        if biome:
-            _BIOME_COMPAT: dict[str, set[str]] = {
-                "tundra":   {"#河", "#瀑", "#溪", "#湖", "#江"},
-                "desert":   {"#河", "#瀑", "#溪", "#湖", "#江"},
-                "coast":    {"#河", "#瀑", "#溪", "#湖", "#码头", "#海", "#江"},
-                "mountain": {"#河", "#瀑", "#溪", "#湖", "#江"},
-                "rainforest": {"#河", "#瀑", "#溪", "#湖", "#江"},
-                "grassland":  {"#河", "#瀑", "#溪", "#湖", "#江"},
-                "city":     {"#河", "#瀑", "#溪", "#湖", "#码头", "#江"},
-            }
-            allowed = _BIOME_COMPAT.get(biome, set())
-            if allowed:
-                filtered = [s for s, t in zip(pool, tags_list)
-                            if not t or t & allowed]
-                if filtered:
-                    pool = filtered
-
-        # Inland exclusion: no dock/ocean scenes for inland features
-        has_ocean = any(f.get("type") == "ocean" for f in features) if features else False
-        if not has_ocean and "ocean" not in feat_set:
-            filtered = [s for s, t in zip(pool, tags_list)
-                        if not (t & _INLAND_EXCLUDE_TAGS)]
-            if filtered:
-                pool = filtered
+    # Card 33: read biome-specific product file directly
+    if biome:
+        pool = _load_scenes(f"water_{biome}")
+    else:
+        pool = _load_scenes("water_features")  # fallback to legacy
 
     ctx = {"features": feat_set}
     if pool:
-        return _pick_scene(pool, "water_features", rng, ctx)
+        return _pick_scene(pool, f"water_{biome}", rng, ctx)
     # Fallback: use the first feature's bearing
     if features:
         return f"{features[0].get('bearing', '东')}边有水。"

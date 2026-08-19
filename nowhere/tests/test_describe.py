@@ -246,96 +246,93 @@ def test_all_kinds_have_variants():
         assert len(pool) >= 3, f"{name} has only {len(pool)} variants"
 
 
-# ── Card 33: biome tag filtering tests ───────────────────────────────
+# ── Card 33: biome-specific product file tests ───────────────────────
 
 
 def test_inland_water_features_no_dock_or_ocean():
-    """Inland water_features render must never contain dock/ocean scenes."""
+    """Inland biomes: water product files must NOT contain dock/ocean keywords."""
     dock_ocean_kw = ["码头", "卸货"]
-    # Simulate inland context: filter out #码头 and #海 tagged scenes
     for seed in range(50):
         rng = random.Random(seed)
         for biome in ("desert", "mountain", "grassland", "tundra"):
-            pool = d._load_scenes("water_features")
-            tags = d._BIOME_TAGS_CACHE.get("water_features", [])
-            # Filter like _render_water_features does: exclude dock/ocean tags
-            if pool and tags and len(tags) == len(pool):
-                filtered = [s for s, t in zip(pool, tags)
-                            if not (t & d._INLAND_EXCLUDE_TAGS)]
-            else:
-                filtered = pool
-            if filtered:
-                s = rng.choice(filtered)
-                for kw in dock_ocean_kw:
-                    assert kw not in s, (
-                        f"Inland biome={biome} got dock/ocean keyword '{kw}': {s!r}"
-                    )
+            pool = d._load_scenes(f"water_{biome}")
+            assert pool, f"No water scenes for biome={biome}"
+            s = rng.choice(pool)
+            for kw in dock_ocean_kw:
+                assert kw not in s, (
+                    f"Inland biome={biome} got dock/ocean keyword '{kw}': {s!r}"
+                )
 
 
-def test_water_features_biome_pool_sizes():
-    """After tag filtering, each biome's water_features pool must have >= 8 sentences."""
-    pool = d._load_scenes("water_features")
-    tags = d._BIOME_TAGS_CACHE.get("water_features", [])
-    assert len(pool) == len(tags), "Pool/tags length mismatch"
-    _BIOME_COMPAT = {
-        "tundra":   {"#河", "#瀑", "#溪", "#湖"},
-        "desert":   {"#河", "#瀑", "#溪", "#湖"},
-        "coast":    {"#河", "#瀑", "#溪", "#湖", "#码头", "#海"},
-        "mountain": {"#河", "#瀑", "#溪", "#湖"},
-    }
-    for biome, allowed in _BIOME_COMPAT.items():
-        filtered = [s for s, t in zip(pool, tags) if not t or t & allowed]
-        assert len(filtered) >= 8, (
-            f"Biome '{biome}' has only {len(filtered)} water_features sentences"
+def test_coast_water_features_can_have_dock():
+    """Coast biome: water product file MAY contain dock scenes."""
+    pool = d._load_scenes("water_coast")
+    assert pool, "No water scenes for coast"
+    # At least one scene should mention dock-related content
+    has_dock = any("码头" in s or "卸货" in s for s in pool)
+    assert has_dock, "Coast water pool has no dock scenes"
+
+
+def test_water_biome_pool_sizes():
+    """Each biome's water product file must have >= 8 sentences."""
+    for biome in ("tundra", "desert", "coast", "mountain"):
+        pool = d._load_scenes(f"water_{biome}")
+        assert len(pool) >= 8, (
+            f"Biome '{biome}' has only {len(pool)} water sentences"
         )
 
 
 def test_discovery_biome_dedup():
     """Same-biome discovery draw 8 times: dedup rate >= 6/8."""
-    pool = d._load_scenes("walk_discovery")
-    tags = d._BIOME_TAGS_CACHE.get("walk_discovery", [])
-    assert len(pool) == len(tags), "Pool/tags length mismatch"
-    assert len(pool) >= 130, f"Discovery pool too small: {len(pool)}"
-
-    # Test each biome category
-    biome_tags_map = {
-        "forest": "#林", "desert": "#漠", "mountain": "#山",
-        "ocean": "#海", "tundra": "#极", "city": "#城",
+    biome_map = {
+        "forest": "discovery_forest", "desert": "discovery_desert",
+        "mountain": "discovery_mountain", "coast": "discovery_coast",
+        "tundra": "discovery_tundra", "city": "discovery_city",
     }
-    for biome_name, tag in biome_tags_map.items():
-        matched = [s for s, t in zip(pool, tags) if tag in t]
-        assert len(matched) >= 8, (
-            f"Biome '{biome_name}' ({tag}) has only {len(matched)} discovery sentences"
+    for biome_name, scene_name in biome_map.items():
+        pool = d._load_scenes(scene_name)
+        assert len(pool) >= 8, (
+            f"Biome '{biome_name}' has only {len(pool)} discovery sentences"
         )
         # Draw 8 times, count unique
         rng = random.Random(42)
-        drawn = [rng.choice(matched) for _ in range(8)]
+        drawn = [rng.choice(pool) for _ in range(8)]
         unique = len(set(drawn))
         assert unique >= 6, (
             f"Biome '{biome_name}' dedup too low: {unique}/8 unique out of 8 draws"
         )
 
 
-def test_discovery_pool_size():
-    """walk_discovery pool must have >= 130 sentences total."""
-    pool = d._load_scenes("walk_discovery")
-    assert len(pool) >= 130, f"Discovery pool too small: {len(pool)} (expected >= 130)"
+def test_discovery_pool_sizes():
+    """Each biome's discovery product file must have >= 10 sentences."""
+    for biome in ("forest", "desert", "mountain", "coast", "tundra", "city"):
+        pool = d._load_scenes(f"discovery_{biome}")
+        assert len(pool) >= 10, (
+            f"Discovery biome '{biome}' has only {len(pool)} sentences"
+        )
 
 
-def test_biome_tag_stripping():
-    """Biome tags must be stripped from rendered text."""
+def test_product_files_no_biome_tags():
+    """Product files must NOT contain biome tags (build strips them)."""
+    import pathlib
+    data_dir = pathlib.Path(__file__).resolve().parent.parent / "data"
+    # Legacy files (scene_water_features.txt, scene_walk_discovery.txt)
+    # still have biome tags — only check new biome-specific product files.
+    legacy_files = {"scene_water_features.txt", "scene_walk_discovery.txt"}
+    for fp in data_dir.glob("scene_water_*.txt"):
+        if fp.name in legacy_files:
+            continue
+        lines = fp.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            assert not line.startswith("#"), (
+                f"Product file {fp.name} has biome tag: {line!r}"
+            )
+
+
+def test_legacy_water_features_still_works():
+    """Legacy scene_water_features.txt (old format) still loads for fallback."""
     pool = d._load_scenes("water_features")
-    for s in pool:
-        assert not s.startswith("#"), f"Biome tag not stripped: {s!r}"
-
-
-def test_water_features_untagged_compatible():
-    """Lines without biome tags must be treated as matching all biomes."""
-    pool = d._load_scenes("water_features")
-    tags = d._BIOME_TAGS_CACHE.get("water_features", [])
-    untagged = [s for s, t in zip(pool, tags) if not t]
-    # There should be at least some untagged (universal) lines in walk_discovery
-    disc_pool = d._load_scenes("walk_discovery")
-    disc_tags = d._BIOME_TAGS_CACHE.get("walk_discovery", [])
-    disc_untagged = [s for s, t in zip(disc_pool, disc_tags) if not t]
-    assert len(disc_untagged) > 0, "No untagged (universal) discovery sentences"
+    assert len(pool) >= 30, f"Legacy water_features too small: {len(pool)}"

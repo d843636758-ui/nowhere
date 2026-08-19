@@ -272,7 +272,7 @@ def probe_2_1_walk_north_latitude_increase():
     dist_km = result.get("dist_km", 0)
 
     lat_increased = lat_after > lat_before
-    dist_ok = abs(dist_km - 2.0) < 0.3  # ±15% (clamp range is 0.2-5.0)
+    dist_ok = abs(dist_km - 2.0) < 0.3  # ±15% (clamp range is 0.05-5.0)
     passed = lat_increased and dist_ok
     _r("Walking", "2.1 walk N 2km latitude increase",
        f"lat increase, dist≈2km",
@@ -386,7 +386,7 @@ def probe_2_4_clamp_behavior():
     min_ok = dist_min >= 0.05 and clamped_min
     max_ok = dist_max <= 5.0 and clamped_max
     passed = min_ok and max_ok
-    _r("Walking", "2.4 clamp 0.01→0.05, 100→5.0",
+    _r("Walking", "2.4 clamp 0.01->0.05, 100->5.0",
        f"dist_min>=0.05, dist_max<=5.0, both clamped",
        f"min: dist={dist_min},clamped={clamped_min}; max: dist={dist_max},clamped={clamped_max}",
        passed,
@@ -990,14 +990,14 @@ def _fresh_state(lat: float, lon: float) -> WorldState:
 
 
 def probe_0b_1_walk_negative_dist():
-    """walk(distance_km=-5): should clamp to 0.2, no crash."""
+    """walk(distance_km=-5): should clamp to 0.05, no crash."""
     s = _fresh_state(40.0, 116.0)
     try:
         result = walk_mod.step(s, 0.0, None, -5.0)
         dist = result.get("dist_km", 0)
-        passed = dist >= 0.2 and not result.get("blocked")
+        passed = dist >= 0.05 and not result.get("blocked")
         _r("Input", "0b.1 walk(distance_km=-5) negative",
-           "clamped to >=0.2, no crash",
+           "clamped to >=0.05, no crash",
            f"dist={dist}, blocked={result.get('blocked')}",
            passed,
            f"clamped={result.get('clamped')}")
@@ -1009,14 +1009,14 @@ def probe_0b_1_walk_negative_dist():
 
 
 def probe_0b_2_walk_zero_dist():
-    """walk(distance_km=0): should clamp to 0.2, no crash."""
+    """walk(distance_km=0): should clamp to 0.05, no crash."""
     s = _fresh_state(40.0, 116.0)
     try:
         result = walk_mod.step(s, 0.0, None, 0.0)
         dist = result.get("dist_km", 0)
-        passed = dist >= 0.2
+        passed = dist >= 0.05
         _r("Input", "0b.2 walk(distance_km=0) zero",
-           "clamped to >=0.2",
+           "clamped to >=0.05",
            f"dist={dist}",
            passed,
            f"clamped={result.get('clamped')}")
@@ -1033,7 +1033,7 @@ def probe_0b_3_walk_nan():
     try:
         result = walk_mod.step(s, 0.0, None, float("nan"))
         dist = result.get("dist_km")
-        # NaN comparison: dist >= 0.2 is False, dist <= 5.0 is False
+        # NaN comparison: dist >= 0.05 is False, dist <= 5.0 is False
         # So _clamp_dist returns NaN, then terrain.destination gets NaN
         nan_detected = dist is not None and math.isnan(dist)
         blocked = result.get("blocked", False)
