@@ -862,6 +862,7 @@ def render(
     biome: str = "",
     elevation: float = 0,
     recent_scenes: list[str] | None = None,
+    recent_touch: set[str] | None = None,
 ) -> str:
     """渲染一种感官。优先用场景文件,兜底用模板。kind 见 _HANDLERS。"""
     # Try scene files for terrain/weather/water
@@ -883,6 +884,9 @@ def render(
     # Set biome context for handlers that need it (e.g. water_features)
     global _CURRENT_BIOME
     _CURRENT_BIOME = biome or ""
+    # Pass recent_touch to terrain handler via module-level variable
+    global _RECENT_TOUCH
+    _RECENT_TOUCH = recent_touch or set()
     return handler(payload, prev, rng)
 
 
@@ -978,27 +982,42 @@ def _scene_for_kind(kind: str, payload: dict, rng: random.Random,
 
 
 def _normalize_prose(text: str) -> str:
-    """标点规整: 补缺失句号、全半角统一、连续句号压一、多余空格压掉。
+    """标点规整: 全半角统一、连续句号压一、多余空格压掉。
 
-    - 缺失句号: 前段尾字是中文字符且后段开头非标点非中文字符 → 补"。"
-    - 全半角统一: 英文逗号/句号/问号/感叹号在中文语境转全角
+    - 全半角统一: 中文字符后的英文逗号/句号/问号/感叹号转全角
     - 连续句号压成一个
     - 多余空格压掉
+
+    注: 缺失句号的修补在 compose() 的拼接点做(按 section 边界处理)。
     """
     if not text:
         return text
-    # Half-width → full-width in Chinese context (letter/digit before, Chinese after)
-    text = re.sub(r'(?<=[一-鿿A-Za-z]),(?=[一-鿿])', '，', text)
-    text = re.sub(r'(?<=[一-鿿A-Za-z])\.(?=[一-鿿])', '。', text)
-    text = re.sub(r'(?<=[一-鿿A-Za-z])\?(?=[一-鿿])', '？', text)
-    text = re.sub(r'(?<=[一-鿿A-Za-z])!(?=[一-鿿])', '！', text)
-    # Missing period: Chinese char followed by non-punctuation non-Chinese char
-    text = re.sub(r'(?<=[一-鿿])(?=[^一-鿿　-〿＀-￯\s.,;:!?。，；：！？\-\[\]【】「」""''()（）])', '。', text)
+    # Half-width → full-width after Chinese character
+    text = re.sub(r'(?<=[一-鿿]),', '，', text)
+    text = re.sub(r'(?<=[一-鿿])\.', '。', text)
+    text = re.sub(r'(?<=[一-鿿])\?', '？', text)
+    text = re.sub(r'(?<=[一-鿿])!', '！', text)
     # Consecutive periods → one
     text = re.sub(r'。{2,}', '。', text)
     # Extra spaces
     text = re.sub(r'[ \t]+', ' ', text).strip()
     return text
+
+
+def _ends_with_cjk(s: str) -> bool:
+    """Check if string ends with a CJK character (not punctuation)."""
+    if not s:
+        return False
+    ch = s[-1]
+    return bool(re.match(r'[一-鿿]', ch))
+
+
+def _starts_with_cjk(s: str) -> bool:
+    """Check if string starts with a CJK character."""
+    if not s:
+        return False
+    ch = s[0]
+    return bool(re.match(r'[一-鿿]', ch))
 
 
 # Walk-specific transition phrases — only for walk sections
@@ -1030,6 +1049,10 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
         if i == 0:
             parts.append(s)
             continue
+        # Insert missing period at section boundary:
+        # previous part ends with CJK char and current section starts with CJK char
+        if parts and _ends_with_cjk(parts[-1]) and _starts_with_cjk(s):
+            parts[-1] += "。"
         if s.startswith("你"):
             pool = [t for t in action_transitions if t == "" or t not in used]
         else:
@@ -1513,17 +1536,94 @@ _SMELL_BY_BIOME: dict[str, list[str]] = {
 }
 
 _TOUCH_BY_SURFACE: dict[str, list[str]] = {
-    "sand": ["脚踩下去，沙子陷了半寸", "沙子从脚趾缝里挤出来"],
-    "rock": ["脚底硌得生疼", "石头是烫的，隔着鞋底也能感觉到"],
-    "snow": ["脚陷下去三寸，拔出来的时候有声音", "雪壳塌裂，碎冰钻进鞋帮"],
-    "forest": ["树根绊了一下，你没倒", "落叶踩上去沙沙响", "苔藓踩上去软的"],
-    "grass": ["露水打湿了鞋面", "草叶刮过小腿，留下一道湿痕"],
-    "urban": ["脚下的路面被磨得光滑", "地面是硬的，踩上去没有弹性"],
-    "water_ocean": ["浪打在脚背上，凉的", "脚趾间的沙被吸走"],
-    "water_fresh": ["水凉得刺骨", "河底的石头滑，你差点摔倒"],
-    "bare": ["碎石在脚下滑动", "地面干裂，踩上去碎了一层"],
-    "ice": ["脚底打滑，你重心往前倾", "冰面嘎吱响，像踩在玻璃上"],
-    "wetland": ["脚陷进泥里，拔出来咕的一声", "水草缠住了脚踝"],
+    "sand": [
+        "脚踩下去，沙子陷了半寸",
+        "沙子从脚趾缝里挤出来",
+        "热沙隔着鞋底烫上来",
+        "每一步踩下去，沙子都往两边塌",
+        "脚踝陷进沙里，拔出来要用力",
+        "沙面上有风纹，踩上去就平了",
+    ],
+    "rock": [
+        "脚底硌得生疼",
+        "石头是烫的，隔着鞋底也能感觉到",
+        "一块松动的石头在脚下滑了一下",
+        "岩石的棱角顶着脚心",
+        "手扶了一下旁边的石壁，粗糙的",
+        "碎石在脚底滚动，你稳住了",
+    ],
+    "snow": [
+        "脚陷下去三寸，拔出来的时候有声音",
+        "雪壳塌裂，碎冰钻进鞋帮",
+        "新雪软，踩下去没到底",
+        "雪被踩实了的地方滑",
+        "脚踝周围的雪化了一点，湿了裤脚",
+        "每一步都带出嘎吱一声",
+    ],
+    "forest": [
+        "树根绊了一下，你没倒",
+        "落叶踩上去沙沙响",
+        "苔藓踩上去软的",
+        "低枝刮过肩膀，留下一道湿痕",
+        "脚下的腐叶层比想象的厚",
+        "松针扎进鞋帮，拔了几根",
+    ],
+    "grass": [
+        "露水打湿了鞋面",
+        "草叶刮过小腿，留下一道湿痕",
+        "草根抓着土，踩上去比想象的硬",
+        "草穗扫过手背，痒的",
+        "脚踩下去，草丛里有虫子跳开",
+        "草地上有牛蹄印，踩进去刚好合脚",
+    ],
+    "urban": [
+        "脚下的路面被磨得光滑",
+        "地面是硬的，踩上去没有弹性",
+        "路沿石的棱角硌了一下脚",
+        "井盖踩上去咚的一声",
+        "砖缝里长出来的草蹭过鞋底",
+        "路面有一块翘起来，你跨过去了",
+    ],
+    "water_ocean": [
+        "浪打在脚背上，凉的",
+        "脚趾间的沙被吸走",
+        "退浪拽着脚底的沙往海里去",
+        "脚踩进水里，沙子塌了一圈",
+        "浪花溅到膝盖，盐水黏在皮肤上",
+        "贝壳碎片硌了一下脚心",
+    ],
+    "water_fresh": [
+        "水凉得刺骨",
+        "河底的石头滑，你差点摔倒",
+        "水流推着小腿，要站稳得用力",
+        "脚趾踩到一块圆石头，滑的",
+        "水草从脚踝边溜过去",
+        "溪水漫过脚背，凉意顺着腿往上走",
+    ],
+    "bare": [
+        "碎石在脚下滑动",
+        "地面干裂，踩上去碎了一层",
+        "风把细沙吹进鞋里",
+        "脚下的土硬得像石头",
+        "一块干泥巴在脚底碎了",
+        "碎石缝里有蚂蚁在搬家",
+    ],
+    "ice": [
+        "脚底打滑，你重心往前倾",
+        "冰面嘎吱响，像踩在玻璃上",
+        "鞋底在冰上留不下印子",
+        "冰面有一层薄水，踩上去溅开",
+        "脚趾在冰上抠了一下才站住",
+        "冰面裂了一条纹，没碎",
+    ],
+    "wetland": [
+        "脚陷进泥里，拔出来咕的一声",
+        "水草缠住了脚踝",
+        "泥浆漫过鞋帮，袜子湿了",
+        "脚踩下去，气泡从泥里冒出来",
+        "湿地的泥黏，每一步都要拔脚",
+        "脚边有青蛙跳进水里",
+    ],
 }
 
 

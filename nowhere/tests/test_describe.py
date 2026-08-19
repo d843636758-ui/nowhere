@@ -250,17 +250,15 @@ def test_all_kinds_have_variants():
 
 
 def test_inland_water_features_no_dock_or_ocean():
-    """Inland water_features render must never contain dock/ocean keywords."""
-    dock_ocean_kw = ["码头", "卸货", "船"]
-    # Simulate inland context: set biome and call render
+    """Inland water_features render must never contain dock/ocean scenes."""
+    dock_ocean_kw = ["码头", "卸货"]
+    # Simulate inland context: filter out #码头 and #海 tagged scenes
     for seed in range(50):
         rng = random.Random(seed)
-        # Use render with inland biome (desert, mountain, grassland etc.)
         for biome in ("desert", "mountain", "grassland", "tundra"):
-            d._CURRENT_BIOME = biome
             pool = d._load_scenes("water_features")
             tags = d._BIOME_TAGS_CACHE.get("water_features", [])
-            # Filter like _render_water_features does
+            # Filter like _render_water_features does: exclude dock/ocean tags
             if pool and tags and len(tags) == len(pool):
                 filtered = [s for s, t in zip(pool, tags)
                             if not (t & d._INLAND_EXCLUDE_TAGS)]

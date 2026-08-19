@@ -924,13 +924,13 @@ def _build_salience_candidates(
             "payload": s,
         })
 
-    # radio (optional) — 只在电台变化时作为候选（开门到达 / 换台 / 走远 50km）。
+    # radio (optional) — 冷却5步 + 只在换台/信号变化时再提。
     # 同台复读时完全排除，避免"KCRW 在播…"每步都占 salience 名额。
     r = env.get("radio")
     if r:
         prev_r = (prev_env or {}).get("radio")
         changed = prev_r is None or (prev_r.get("name") != r.get("name"))
-        if changed:
+        if changed or _state.radio_steps_since >= 5:
             candidates.append({
                 "kind": "radio",
                 "delta": 1.0,
@@ -938,6 +938,7 @@ def _build_salience_candidates(
                 "body_distance": 0.6,
                 "payload": r,
             })
+            _state.radio_steps_since = 0
 
     # water features (optional)
     wf = env.get("water_features")
@@ -1262,7 +1263,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         "weather": env.get("weather"),
         "sky": env.get("sky"),
         "radio": env.get("radio"),
-        "water_features": env.get("water_features"),
+        "water_features": water_features,
     }
     _state.env_pos = (lat, lon)
     _state.env_at = _state.now()
@@ -1414,6 +1415,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         }
 
     # ── 2c. far_slope: 近处没坡,但高处在远处,先带路 ──────────────────
+    _state.radio_steps_since += 1
+    _state.walk_step_counter += 1
     far_note = ""
     if step_result.get("far_slope"):
         bearing_deg, gain = step_result["far_slope"]
@@ -1461,8 +1464,22 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # ── 3.5. Water features + SST + marine life ──────────────────────
     water_text = ""
-    # Skip hydrology for now (Overpass API blocked in China)
-    water_features = []  # water is nice-to-have, never blocks
+    # Offline waterway lookup (always available, no network needed)
+    water_features = _offline_water_nearby(lat, lon, radius_km=50)
+    # Try online Overpass as enhancement (silently falls back on failure)
+    try:
+        online_wf = await asyncio.wait_for(hydrology.nearby_water(lat, lon), timeout=5.0)
+        if online_wf:
+            water_features = online_wf
+    except Exception:
+        pass  # offline result already populated
+
+    # Build water feature description from offline data
+    if water_features:
+        water_text = describe.render(
+            "water_features", water_features, None, _rng,
+            biome=_state.biome or "", elevation=env.get("elevation", 0),
+        )
 
     sst_text = ""
     try:
@@ -1480,6 +1497,14 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                 marine_text = f"{m['common_name']}。{m['distance_m']}米外。{m['scene']}"
         except Exception:
             pass
+
+    # ── Along-river narrative: detect flow alignment ──────────────
+    river_text = ""
+    if water_features:
+        has_river = any(f.get("type") == "river" for f in water_features)
+        if has_river:
+            river_dir = _compute_river_direction(water_features, lat, lon)
+            river_text = _river_alignment_text(bearing, river_dir, _rng)
 
     # ── 4. 30% chance: encounter a message ───────────────────────────
     message_text = ""
@@ -1520,6 +1545,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         sections.append(sst_text)
     if marine_text:
         sections.append(marine_text)
+    if river_text:
+        sections.append(river_text)
     if message_text:
         sections.append(message_text)
     if file_encounter_text:
@@ -1591,14 +1618,16 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             if composed:
                 sections.append(composed)
 
-        # 6. Narrative connector
+        # 6. Narrative connector — only on direction change or every 3rd step
         direction_label = _bearing_to_label(bearing, semantic)
         if not direction_label and semantic == "forward":
             # "forward" → derive from path history
             path_bearing = walk_mod._bearing_from_path(_state.path)
             direction_label = _bearing_to_label(path_bearing, None)
         if direction_label:
-            sections.append(f"你继续往{direction_label}走。")
+            dir_changed = direction_label != _state.narrative.get("direction")
+            if dir_changed or _state.walk_step_counter % 3 == 0:
+                sections.append(f"你继续往{direction_label}走。")
 
     # ── 5b. 方志节律: 这座城此刻正在发生的事(季节门控)────────────
     tz_name = _tf.timezone_at(lat=lat, lng=lon)
@@ -1654,7 +1683,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         "weather": env.get("weather"),
         "sky": env.get("sky"),
         "radio": env.get("radio"),
-        "water_features": env.get("water_features"),
+        "water_features": water_features,
     }
     _state.last_surface = current_surface
     _state.last_elevation = current_elevation

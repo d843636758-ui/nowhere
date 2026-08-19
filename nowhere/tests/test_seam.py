@@ -51,13 +51,8 @@ def mock_scenes(monkeypatch):
 # ── _normalize_prose tests ───────────────────────────────────────────
 
 
-def test_normalize_prose_fixes_missing_period():
-    """Chinese char followed by non-punctuation → insert period."""
-    assert d._normalize_prose("像刚下过雪风声大") == "像刚下过雪。风声大"
-
-
 def test_normalize_prose_fullwidth():
-    """Half-width punctuation in Chinese context → full-width."""
+    """Half-width punctuation after Chinese chars → full-width."""
     assert d._normalize_prose("你好,世界") == "你好，世界"
     assert d._normalize_prose("好吗?") == "好吗？"
     assert d._normalize_prose("太好!") == "太好！"
@@ -81,18 +76,13 @@ def test_normalize_prose_empty():
 
 
 def test_normalize_prose_chinese_to_chinese_no_period():
-    """Chinese followed by Chinese should NOT insert period."""
+    """Chinese followed by Chinese should NOT insert period (boundary in compose)."""
     assert d._normalize_prose("你好世界") == "你好世界"
 
 
 def test_normalize_prose_number_boundary():
     """Number boundary should be handled correctly."""
     assert d._normalize_prose("海拔3000米") == "海拔3000米"
-
-
-def test_normalize_prose_two_sections_boundary():
-    """Two sections concatenated should get period at boundary."""
-    assert d._normalize_prose("苔藓的味道，湿的，像刚下过雪风声大") == "苔藓的味道，湿的，像刚下过雪。风声大"
 
 
 # ── compose() transition guard tests ─────────────────────────────────
@@ -150,8 +140,12 @@ def test_compose_inserts_period_between_sections():
     sections = ["苔藓的味道，湿的，像刚下过雪", "风声大"]
     rng = random.Random(42)
     result = d.compose(sections, rng)
-    # Should have a period between "雪" and "风"
-    assert "雪。风" in result, f"Missing period between sections: {result}"
+    # Period should be inserted after "雪" (end of section 1) before the transition/section 2
+    assert "雪。" in result, f"Missing period after section 1: {result}"
+    # "雪" should appear before "风" with period in between
+    assert result.index("雪。") < result.index("风"), (
+        f"Period not between sections: {result}"
+    )
 
 
 def test_compose_preserves_existing_punctuation():
@@ -189,8 +183,8 @@ def test_compose_no_stray_pronouns_in_establish():
 def test_regression_xiang_gang_guo_xue(mock_smell, mock_scenes):
     """Regression: '像刚下过雪风声大' — missing period between smell and walk text.
 
-    Simulates the scenario where _SMELL_BY_BIOME returns a smell entry
-    without a trailing period, and it gets concatenated with walk text.
+    The fix is in compose(): when joining sections where the previous one ends
+    with a CJK char and the next starts with a CJK char, a period is inserted.
     """
     smell = "苔藓的味道，湿的，像刚下过雪"
     walk = "风声大"
@@ -206,12 +200,13 @@ def test_regression_xiang_gang_guo_xue(mock_smell, mock_scenes):
     )
 
 
-def test_regression_normalize_prose_direct():
-    """Direct test of the normalizer on the known bug input."""
-    bad = "苔藓的味道，湿的，像刚下过雪风声大"
-    good = d._normalize_prose(bad)
-    assert "雪。风" in good, f"Normalizer did not fix the known bug: {good}"
-    assert "雪风" not in good, f"Known concatenation still present: {good}"
+def test_regression_compose_inserts_period_at_boundary():
+    """compose() inserts period when joining two CJK-ending sections."""
+    bad = ["苔藓的味道，湿的，像刚下过雪", "风声大"]
+    rng = random.Random(42)
+    result = d.compose(bad, rng)
+    assert "雪。风" in result, f"compose() did not insert period at boundary: {result}"
+    assert "雪风" not in result, f"Known concatenation still present: {result}"
 
 
 # ── 8 places × landing + 3 walks (fixed seed) ────────────────────────

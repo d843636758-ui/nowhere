@@ -58,6 +58,8 @@ class WorldState:
         }
         # ── Journey log (append-only, farewell/return events) ─────────
         self.journey_log: list[dict] = []
+        # ── Wilderness depth tracking (Card 40: honest boundaries) ────
+        self.wilderness_depth_km: float = 0.0  # distance from nearest known place/water feature
 
     def now(self) -> datetime | None:
         """Return the current simulated UTC time: landed_at + elapsed_hours."""
@@ -99,6 +101,7 @@ class WorldState:
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
             "journey_log": self.journey_log[-50:],  # keep last 50 events
+            "wilderness_depth_km": self.wilderness_depth_km,
         }
 
     @classmethod
@@ -130,6 +133,8 @@ class WorldState:
         s.last_surface = data.get("last_surface")
         s.last_elevation = data.get("last_elevation", 0.0)
         s.steps_since_discovery = data.get("steps_since_discovery", 0)
+        s.radio_steps_since = data.get("radio_steps_since", 999)
+        s.walk_step_counter = data.get("walk_step_counter", 0)
         _default_narrative = {
             "direction": None, "distance_walked": 0,
             "last_feature": None, "discoveries": [], "mood": "neutral",
