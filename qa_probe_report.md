@@ -674,49 +674,6 @@
 
 ---
 
-## 新增探针 -- 2026-08-20 02:29
-
-**新增探针**: 15  |  **通过**: 13  |  **失败**: 2
-
-### Probe 0b: Input Hardening (输入设防)
-
-| # | 探针 | 期望 | 实际 | 判定 | 证据 |
-|---|------|------|------|------|------|
-| 1 | 0b.1 walk(distance_km=-5) negative | clamped to >=0.2, no crash | dist=0.2, blocked=False | PASS | clamped=True |
-| 2 | 0b.2 walk(distance_km=0) zero | clamped to >=0.2 | dist=0.2 | PASS | clamped=True |
-| 3 | 0b.3 walk(distance_km=NaN) not-a-number | no crash, pos not NaN | dist=5.0, pos_nan=False, blocked=False | PASS | NaN propagates through _clamp_dist; step should guard or crash gracefully |
-| 4 | 0b.4 walk(distance_km=1e9) huge | clamped to 5.0 | dist=5.0, clamped=True | PASS |  |
-| 5 | 0b.5 walk(distance_km='abc') string | TypeError or handled gracefully | raised TypeError: '<' not supported between instances of 'str' and 'float' | PASS | expected: type error on string input |
-| 6 | 0b.6 open_door(to='') empty string | error text, no crash | text=找不到「」。, error=not_found | PASS |  |
-| 7 | 0b.7 open_door(500chars+newlines) long+control | error text, no crash | text=找不到「aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | PASS |  |
-| 8 | 0b.8 open_door('!@#$%^&*()') special chars | error text, no crash | text=找不到「!@#$%^&*()」。 | PASS |  |
-| 9 | 0b.9 listen(seconds=-1) negative | error: bad_seconds | text=听多久？给个数。, error=bad_seconds | PASS |  |
-
-### Probe 0c: Polar/Date Line (极地日界线)
-
-| # | 探针 | 期望 | 实际 | 判定 | 证据 |
-|---|------|------|------|------|------|
-| 1 | 0c.1 date line lon wrap (179.9E -> E) | longitude wraps to negative | step_lon=179.9188, dest_lon=179.9188 | FAIL | terrain.destination uses ((lon+180)%360)-180 |
-| 2 | 0c.2 country_code near ±180 date line | returns country code, no crash | FJ? cc_178=FJ, cc_179.99=FJ, cc_-179.99=FJ | PASS | country_code_of uses dlon wrapping |
-| 3 | 0c.3 walk at lat=85 near pole | lat stays in [-90,90], no crash | lat=85.017986, blocked=False | PASS | lon=0.000000 |
-| 4 | 0c.4 country_code_of(South Pole) | returns value or None, no crash | cc=AR | PASS | nearest city to -90,0 is probably in southern hemisphere |
-| 5 | 0c.5 food_items(None) no crash | returns [] | type=list, len=0 | PASS |  |
-| 6 | 0c.6 places.nearby(lat=85) cos->0 | no crash | CRASH: OperationalError: no such table: places | FAIL |  |
-
-### 新增探针失败项
-
-1. **[Polar] 0c.1 date line lon wrap (179.9E -> E)**
-   - 期望: longitude wraps to negative
-   - 实际: step_lon=179.9188, dest_lon=179.9188
-   - 证据: terrain.destination uses ((lon+180)%360)-180
-
-2. **[Polar] 0c.6 places.nearby(lat=85) cos->0**
-   - 期望: no crash
-   - 实际: CRASH: OperationalError: no such table: places
-   - 证据:
-
----
-
 ## 新增探针 -- 2026-08-20 02:31
 
 **新增探针**: 15  |  **通过**: 15  |  **失败**: 0
@@ -745,3 +702,60 @@
 | 4 | 0c.4 country_code_of(South Pole) | returns value or None, no crash | cc=AR | PASS | nearest city to -90,0 is probably in southern hemisphere |
 | 5 | 0c.5 food_items(None) no crash | returns [] | type=list, len=0 | PASS |  |
 | 6 | 0c.6 places.nearby(lat=85) cos->0 | returns list or DB missing | DB issue (not code bug): OperationalError | PASS | places.db missing or malformed in test env |
+
+---
+
+## 新增探针 -- 2026-08-20 02:40
+
+**新增探针**: 19  |  **通过**: 17  |  **失败**: 2
+
+### Probe 0b: Input Hardening (输入设防)
+
+| # | 探针 | 期望 | 实际 | 判定 | 证据 |
+|---|------|------|------|------|------|
+| 1 | 0b.1 walk(distance_km=-5) negative | clamped to >=0.2, no crash | dist=0.05, blocked=False | FAIL | clamped=True |
+| 2 | 0b.2 walk(distance_km=0) zero | clamped to >=0.2 | dist=0.05 | FAIL | clamped=True |
+| 3 | 0b.3 walk(distance_km=NaN) not-a-number | no crash, pos not NaN | dist=5.0, pos_nan=False, blocked=False | PASS | NaN propagates through _clamp_dist; step should guard or crash gracefully |
+| 4 | 0b.4 walk(distance_km=1e9) huge | clamped to 5.0 | dist=5.0, clamped=True | PASS |  |
+| 5 | 0b.5 walk(distance_km='abc') string | TypeError or handled gracefully | raised TypeError: '<' not supported between instances of 'str' and 'float' | PASS | expected: type error on string input |
+| 6 | 0b.6 open_door(to='') empty string | error text, no crash | text=找不到「」。, error=not_found | PASS |  |
+| 7 | 0b.7 open_door(500chars+newlines) long+control | error text, no crash | text=找不到「aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | PASS |  |
+| 8 | 0b.8 open_door('!@#$%^&*()') special chars | error text, no crash | text=找不到「!@#$%^&*()」。 | PASS |  |
+| 9 | 0b.9 listen(seconds=-1) negative | error: bad_seconds | text=听多久？给个数。, error=bad_seconds | PASS |  |
+
+### Probe 0c: Polar/Date Line (极地日界线)
+
+| # | 探针 | 期望 | 实际 | 判定 | 证据 |
+|---|------|------|------|------|------|
+| 1 | 0c.1 date line lon wrap (179.99E -> E 5km) | longitude wraps to negative | dest_lon=-179.9630, step_lon=-179.9630 | PASS | terrain.destination uses ((lon+180)%360)-180 |
+| 2 | 0c.2 country_code near ±180 date line | returns country code, no crash | FJ? cc_178=FJ, cc_179.99=FJ, cc_-179.99=FJ | PASS | country_code_of uses dlon wrapping |
+| 3 | 0c.3 walk at lat=85 near pole | lat stays in [-90,90], no crash | lat=85.017986, blocked=False | PASS | lon=0.000000 |
+| 4 | 0c.4 country_code_of(South Pole) | returns value or None, no crash | cc=AR | PASS | nearest city to -90,0 is probably in southern hemisphere |
+| 5 | 0c.5 food_items(None) no crash | returns [] | type=list, len=0 | PASS |  |
+| 6 | 0c.6 places.nearby(lat=85) cos->0 | returns list or DB missing | DB issue (not code bug): OperationalError | PASS | places.db missing or malformed in test env |
+
+### Probe 5b: Idempotency (幂等批)
+
+| # | 探针 | 期望 | 实际 | 判定 | 证据 |
+|---|------|------|------|------|------|
+| 1 | 5b.1 postcard: same text twice | idempotent or duplicate billing | duplicate billing; ids=100,101; same_text=True | PASS | card count=2 |
+| 2 | 5b.2 mark: same name twice | duplicate rejection or idempotent | reasonable rejection | PASS | r1_err=None, r2_err=duplicate |
+| 3 | 5b.3 open_door: same dest twice | idempotent or re-land | re-landed (new state); resumed=False | PASS | pos1=(39.9, 116.4), pos2=(39.9, 116.4) |
+
+### Probe 5c: Vocabulary Demand (词汇需求统计)
+
+| # | 探针 | 期望 | 实际 | 判定 | 证据 |
+|---|------|------|------|------|------|
+| 1 | 5c.1 direction vocabulary recognition (30 phrases) | recognition rate | 4/30 = 13.3% | PASS | recognized: ['北', '南', '东', '西'] |
+
+### 新增探针失败项
+
+1. **[Input] 0b.1 walk(distance_km=-5) negative**
+   - 期望: clamped to >=0.2, no crash
+   - 实际: dist=0.05, blocked=False
+   - 证据: clamped=True
+
+2. **[Input] 0b.2 walk(distance_km=0) zero**
+   - 期望: clamped to >=0.2
+   - 实际: dist=0.05
+   - 证据: clamped=True

@@ -100,7 +100,7 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 2. **走路链**:walk("N",2) 后纬度确实增加且增量≈2km(±10%);walk("uphill") 在平地返回 no_gain 且**位置不动**(核实审计误报);walk 被悬崖挡住时不计时不移位;walk(0.01)/walk(100) 的 clamp 行为与文案一致(文案说不说谎);连续 8 步朝 8 个方向,最终位置≈回到原点(物理自洽)。
 3. **渲染链**:落地+walk 20 次,全文扫描——占位符残留({xxx})、双句号、None 泄漏、全半角标点混用、禁词(很/非常/十分)、同一段内地名前后不一致。
 4. **数据链**:localcolor/humanities/explorable_index 三地键集合交叉,列出"索引说有、运行时抽不出"的地名全集(卡4 的范围确认);food_by_country 里 zh 空串条目逐条列出。
-5. **状态链**:save→load 后 pos/已见卡/narrative/明信片逐项比对;损坏的 journey.json(乱写)加载不炸。
+5. **状态链**:save→load 后 pos/已见卡/narrative/明信片逐项比对;损坏的 journey.json(乱写)加载不炸。**幂等批(IF"伞-戒指"类):同一操作连发两次的行为清单**——postcard 连寄两张一样的/say 同一句话两遍/mark 同名两次/bury 空手再 bury/open_door 同一目的地连开两次,每个记录:合理拒绝/幂等/重复记账。**词汇需求统计**:walk 方向喂 30 个自然说法("往前/继续/回头/朝亮处/往里走/左拐/后退"……),统计识别率(IF 行规:被拒的输入是金矿,照需求量词表)。
 
 输出 qa_probe_report.md:按五链分组,每条探针 期望/实际/判定(✓/✗)/证据(关键输出截 80 字)。✗ 的就是新 bug 清单,按严重度排序收尾。
 
@@ -195,6 +195,43 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
+## 卡27:旅程收尾(peak-end:记忆=高潮+结尾)— 依赖卡6
+
+只许改:nowhere/server.py、nowhere/journeys.py、nowhere/describe.py、nowhere/tests/test_farewell.py(新建)
+
+依据(不许偏离):Kahneman peak-end rule——人对一段体验的记忆≈高潮+结尾,长度几乎不计(Kemp 2008 度假研究:时长对评价零影响)。乌有乡落地有高潮(establish 段),但**离开一段旅程=直接消失**,没有结尾。切走布拉格去纽约,布拉格就死掉了——按 peak-end,这段旅程在记忆里就是"没结尾",整个 atlas 的回味打折。
+
+1. 离开/切换旅程时(open_door 去新地、switch_journey 触发挂起),给一段**告别时刻**(1-3 句):
+   - 用当前 env 收一个"最后一眼":你在这地方的最后一个画面(天气/时段/地标卡,优先没见过的卡);
+   - 一句身体告别(变体池 5 条:"你又看了一眼{地标}。然后你转身,门就在那。""鞋底还沾着这里的土。门在身后合上。");
+   - 进 journey 档的 log(kind="farewell")。
+2. 重游归来(switch 回旧档)给对称的**回来时刻**:距上次离开过了多少模拟时间("你离开时还是{季节},现在{季节}了")+ 痕迹链阶段推进(卡10 的钩子在这)。
+3. 文案规矩照旧:不煽情、不总结("这次旅行很有意义"枪毙)、证据不陈述——给画面,不给评价。
+4. test_farewell.py:离开触发告别段且进 log;归来文本含时间跨度;文案池无禁词。
+
+验收:新测试绿 + test_journeys 绿。
+
+---
+
+## 卡28:意外层(mishap,旅行的记忆锚)— 不依赖其他卡
+
+只许改:nowhere/server.py、nowhere/state.py、新建 nowhere/data/mishaps.json、nowhere/tests/test_mishap.py(新建)
+
+依据:Camino 论坛的 LIVE 帖里最有血有肉的全是倒霉事(凌晨两点信用卡被盗刷);旅行研究里"意外+克服"是记忆编码最强的锚。乌有乡现在**全是顺的**——没有不顺,就没有故事。意外不是惩罚,是叙事原料。
+
+1. data/mishaps.json,20 条起步,分四级(全是小不顺,不许出大事):
+   - 鞋级:"鞋里进了粒沙,你走三步硌一下,停下来倒。"(无任何状态影响)
+   - 时级:"突然一阵雨,你在屋檐下站了二十分钟。"(elapsed_hours +0.3,与 weather 数据联动:env 本来就有雨才出)
+   - 路级:"走错了,绕回来多花了半小时。"(elapsed_hours +0.5,位置不变)
+   - 物级:"水袋漏了,到下一个镇之前得省着喝。"(挂 state.mishap_tag,后续 3 步内文案里口渴权重升)
+2. 触发:walk 每步 3% 概率,同一场旅程 10 步冷却,每条卡一旅程只出一次(state.mishap_seen,序列化)。**只在与 env 不矛盾时出**(没雨不出雨级,城里有店不出物级——读 env 判定)。
+3. 每条意外**有下文**:下一步 walk 的文本里 50% 概率带一句余韵("鞋里那粒沙好像还在")——意外要有回声,不然就是孤立事件。
+4. test_mishap.py:3% 概率可 mock 命中;env 无雨时雨级卡永不出;同一卡一旅程不重复;回声在下步出现。
+
+验收:新测试绿 + walk 相关测试绿。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py
@@ -253,6 +290,7 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 1. state.py:`self.heading: float = 0.0`(度数,朝北),进 to_dict/from_dict(缺省 0)。
 2. walk.py step():成功迈步后 `state.heading = bearing`。
 3. server.py 新工具 `look(direction: str)`:direction ∈ {左,右,后,前} 或绝对方位(N/NE/E/SE/S/SW/W/NW/北/东/南/西)。相对向按 heading 换算(左=heading-90)。渲染:沿该方位 0.5/2/10km 三点采样(terrain.surface/elevation,复用 walk.py 的 water_ahead_km 探水),组成 1-2 句方向性描述("左边是坡,一路上去;两公里外有水。")。**不动位置、不计时、不进 path**。变体池放 describe.py,守禁词规矩(很/非常/十分禁止,数字不裸奔)。
+3b. **方向词汇表扩充(IF 行规"unrecognized commands are gold")**:现在 _BEARING_MAP/_SEMANTIC_MAP(server.py:117-130)只有罗盘词+"上山/向海/向前",旅行者说"往回走/回头/继续/直走/往后退"全不识别,invalid=True 时**按原方向照走**(只加一句提示)。改:(a) 词汇表加:前/往前/直走/继续→forward;后/回/回头/往回/退→heading+180(相对向,用 state.heading);左/右→heading∓90;(b) 仍然不认识的:停下不走,返回"听不懂「X」。可以说:前/后/左/右/八个方位/上山/向海。"——IF 行规:听不懂就该明确失败,猜着执行=对玩家说谎。这是拍板项,executor 照(a)(b)做,有异议在报告里提不许自作主张。
 4. 短距试探:walk.py _DIST_MIN 从 0.2 放宽到 0.05;server.py walk_impl 里 dist<0.5km 时走"近景档":不调 _gather_env_cached(天气电台不变),渲染换近景变体池(脚下/十步内的细节,放 describe.py),计时照 walk.py 现有逻辑不动。clamp 提示文案分方向:往下 clamp 说"至少走 50 米,按 50 米算了",往上 clamp 才说"一步最多 5 公里"。
 5. test_look.py:落地后 heading=0;look("左") 返回西向描述且 pos 不变;walk("N",0.2) 后 heading 仍 0;look("后") 是南向;walk("N",0.1) 走近景档(文本不重复拉天气)。
 
@@ -388,9 +426,9 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 只许改:nowhere/server.py、nowhere/placememory.py、nowhere/tests/test_bury.py
 
-1. 新工具 `bury()`:把身上带着的 souvenir(state.souvenir)埋在当前坐标。空手 → "你没东西可埋。"埋掉后 souvenir=None。返回一句(变体池 3 条:"你把{name}埋进了土里。这里记得。")。
+1. 新工具 `bury(note: str | None = None)`:把身上带着的 souvenir(state.souvenir)埋在当前坐标,**可以留一句话**(geocaching 社区共识:最好的 cache 带故事,不只是物件)。空手 → "你没东西可埋。"埋掉后 souvenir=None。返回一句(变体池 3 条:"你把{name}埋进了土里。这里记得。")。note 进注入闸(卡25 的 sanitize)。
 2. 存储:placememory 层加 buried.json(全局跨旅程,尊重 NOWHERE_HOME):[{name, desc, from, pos, buried_at}]。上限 100 条 FIFO。
-3. 发现:walk 时每步检查 3km 内有无埋藏,有 → 8% 概率"脚碰到一个铁盒"(变体池 3 条):空手则捡为 souvenir,有主则只看见不拿("你把它又放了回去")。发现后条目保留(下一个人还能踢到)。
+3. 发现:walk 时每步检查 3km 内有无埋藏,有 → 8% 概率"脚碰到一个铁盒"(变体池 3 条):空手则捡为 souvenir,有主则只看见不拿("你把它又放了回去")。**埋时留了 note 的,发现时一起读出来("盒子里还有一行字:{note}")**。发现后条目保留(下一个人还能踢到)。
 4. 自己埋的自己也能再挖到——世界不偏心。
 5. test_bury.py:埋→souvenir 清空→buried.json 有;走到 3km 内反复 walk 能触发发现(mock rng 强制命中);空手埋报错。
 

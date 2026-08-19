@@ -581,6 +581,15 @@ _LIFE_VARIANTS: list[str] = [
     "{time_desc},{distance_m}之内,有人遇见过{common_name}。也许它正看着你——这不重要,知道它在,就够了。",
 ]
 
+# ── Close-up variants (card 7: short-distance < 0.5km) ──────────────
+_CLOSEUP_VARIANTS: list[str] = [
+    "脚下的{surface_desc}。十步之内,地面的纹理看得清。",
+    "近处的{surface_desc},踩上去能感觉到质地。",
+    "就这几步路,{surface_desc}。细节比远处清楚。",
+    "脚边的{surface_desc},颗粒分明。",
+    "近处地面是{surface_desc}。蹲下来能看见缝隙里的土。",
+]
+
 # Seasonal life encounter variants: (season) → list of templates
 _LIFE_SEASONAL: dict[str, list[str]] = {
     "spring": [

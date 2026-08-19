@@ -22,6 +22,7 @@ class WorldState:
         self.landed_at: datetime | None = None  # UTC, door open moment
         self.elapsed_hours: float = 0.0  # walk-accumulated travel time
         self.mode: str = "land"  # "land"|"water"
+        self.heading: float = 0.0  # degrees, 0=north, clockwise
         self.messages: deque = deque(maxlen=20)  # human messages
         self.last_env: dict | None = None  # last env snapshot (salience delta)
         self.env_pos: tuple[float, float] | None = None  # last_env 采集时的坐标
@@ -65,6 +66,7 @@ class WorldState:
             "landed_at": self.landed_at.isoformat() if self.landed_at else None,
             "elapsed_hours": self.elapsed_hours,
             "mode": self.mode,
+            "heading": self.heading,
             "messages": [m if isinstance(m, dict) else {"content": m, "encountered": False} for m in self.messages],
             "place_name": self.place_name,
             "last_text": self.last_text,
@@ -99,6 +101,7 @@ class WorldState:
                 s.landed_at = s.landed_at.replace(tzinfo=timezone.utc)
         s.elapsed_hours = data.get("elapsed_hours", 0.0)
         s.mode = data.get("mode", "land")
+        s.heading = data.get("heading", 0.0)
         for m in data.get("messages", []):
             s.messages.append(m)
         s.place_name = data.get("place_name")

@@ -1182,7 +1182,12 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     now = _state.now()
     # Snapshot before cache update — _gather_env_cached overwrites _state.last_env
     prev_env = _state.last_env
-    env, env_cached = await _gather_env_cached(lat, lon, now)
+    # Short-distance mode: skip env fetch, reuse cached (weather/radio unchanged)
+    if step_result.get("dist_km", 2.0) < 0.5:
+        env = _state.last_env or {}
+        env_cached = True
+    else:
+        env, env_cached = await _gather_env_cached(lat, lon, now)
 
     # Attach step data to terrain payload
     env["terrain"] = {
@@ -1377,7 +1382,12 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         if direction_invalid:
             prose = f"「{direction}」不是方向，按原方向走了。" + prose
         if step_result.get("clamped"):
-            prose = "一步最多 5 公里，按 5 公里走了。" + prose
+            orig = distance_km
+            actual = step_result.get("dist_km", 2.0)
+            if actual < orig:
+                prose = "一步最多 5 公里，按 5 公里走了。" + prose
+            else:
+                prose = "至少走 50 米，按 50 米算了。" + prose
     # Track recent scene texts for dedup (keep last 5)
     for s in sections:
         if s and len(s) > 10:  # only track substantial texts
@@ -2428,6 +2438,86 @@ async def wait(hours: float = 1.0) -> dict:
 def send_postcard(text: str) -> dict:
     """寄一张明信片回家。你写字,世界盖邮戳(真实地点/时间/天气/海拔)。"""
     return send_postcard_impl(text)
+
+
+@mcp.tool()
+def look(direction: str = "前") -> dict:
+    """朝一个方向看。不动位置,不计时。给方位:左/右/前/后 或 N/NE/E/SE/S/SW/W/NW。"""
+    return look_impl(direction)
+
+
+def look_impl(direction: str) -> dict:
+    """Look in a direction without moving."""
+    if _state.pos is None:
+        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+
+    # Parse direction
+    _RELATIVE = {"左": -90, "右": 90, "后": 180, "前": 0, "前边": 0, "后边": 180, "左边": -90, "右边": 90}
+    _ABSOLUTE = {
+        "N": 0, "NE": 45, "E": 90, "SE": 135, "S": 180, "SW": 225, "W": 270, "NW": 315,
+        "北": 0, "东北": 45, "东": 90, "东南": 135, "南": 180, "西南": 225, "西": 270, "西北": 315,
+    }
+    d = direction.strip()
+    if d in _RELATIVE:
+        bearing = (_state.heading + _RELATIVE[d]) % 360
+    elif d in _ABSOLUTE:
+        bearing = _ABSOLUTE[d]
+    else:
+        bearing = _state.heading  # default: look forward
+
+    lat, lon = _state.pos
+
+    # Sample 3 distances: 0.5km, 2km, 10km
+    samples = []
+    for dist_km in (0.5, 2.0, 10.0):
+        tlat, tlon = terrain.destination(lat, lon, bearing, dist_km)
+        surf = terrain.surface(tlat, tlon)
+        elev = terrain.elevation(tlat, tlon)
+        is_water = surf in ("water_ocean", "water_fresh")
+        samples.append({"dist": dist_km, "surface": surf, "elevation": elev, "water": is_water})
+
+    # Compose description
+    parts = []
+    _SURFACE_ZH = {
+        "water_ocean": "海", "water_fresh": "水", "sand": "沙地", "bare": "裸地",
+        "rock": "岩石", "snow": "雪", "ice": "冰", "forest": "树林",
+        "grass": "草地", "urban": "城市", "wetland": "湿地",
+    }
+
+    # Near (0.5km)
+    near = samples[0]
+    near_zh = _SURFACE_ZH.get(near["surface"], near["surface"])
+    parts.append(f"近处是{near_zh}")
+
+    # Mid (2km)
+    mid = samples[1]
+    if mid["water"] and not near["water"]:
+        parts.append("两公里外有水")
+    elif mid["surface"] != near["surface"]:
+        mid_zh = _SURFACE_ZH.get(mid["surface"], mid["surface"])
+        parts.append(f"远处是{mid_zh}")
+
+    # Far (10km)
+    far = samples[2]
+    if far["water"] and not mid["water"]:
+        parts.append("更远的地平线是海")
+
+    # Elevation trend
+    if samples[2]["elevation"] > samples[0]["elevation"] + 200:
+        parts.append("地势在升高")
+    elif samples[2]["elevation"] < samples[0]["elevation"] - 200:
+        parts.append("地势在走低")
+
+    text = "，".join(parts) + "。"
+
+    # Direction label for response
+    _DIR_ZH = {0: "北", 45: "东北", 90: "东", 135: "东南", 180: "南", 225: "西南", 270: "西", 315: "西北"}
+    dir_label = _DIR_ZH.get(round(bearing / 45) * 45 % 360, f"{bearing:.0f}°")
+
+    return {
+        "text": f"往{dir_label}看：{text}",
+        "data": {"bearing": bearing, "samples": samples},
+    }
 
 
 # =====================================================================

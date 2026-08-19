@@ -1,4 +1,4 @@
-"""全链路体检脚本 -- Card 22: 量而不修, 5 chains / 24 probes.
+"""全链路体检脚本 -- Card 22: 量而不修, 5 chains / 29 probes.
 
 Usage:
     cd C:\\Users\\84989\\Desktop\\nowhere_repo
@@ -753,6 +753,229 @@ def probe_5_2_corrupted_journey():
 
 
 # =====================================================================
+# Probe 5b: Idempotency (幂等批) -- 3 probes
+# =====================================================================
+
+def probe_5b_1_postcard_idempotency():
+    """Send same postcard text twice: duplicate billing or idempotent?"""
+    try:
+        import nowhere.server as srv
+        import nowhere.placememory as pm
+
+        # Monkeypatch placememory to avoid disk writes
+        original_save = pm.save_postcard
+        original_update = pm.update_postcard
+        original_record = pm.record_footprint
+        pm.save_postcard = lambda card: None
+        pm.update_postcard = lambda card: None
+        pm.record_footprint = lambda *a, **kw: None
+
+        # Set up state
+        old_state = srv._state
+        s = WorldState()
+        s.pos = (39.9, 116.4)
+        s.landed_at = datetime(2026, 7, 15, 10, 0, 0, tzinfo=timezone.utc)
+        s.elapsed_hours = 0.0
+        s.place_name = "北京"
+        s.last_env = {
+            "surface": "urban",
+            "elevation": 50,
+            "weather": {"text": "晴", "temp_c": 25},
+            "sky": {"phase": "day"},
+        }
+        srv._state = s
+
+        try:
+            text = "来自远方的问候。"
+            r1 = srv.send_postcard_impl(text)
+            r2 = srv.send_postcard_impl(text)
+
+            id1 = r1["data"]["id"]
+            id2 = r2["data"]["id"]
+            same_text = r1["data"]["text"] == r2["data"]["text"]
+            different_id = id1 != id2
+
+            if different_id:
+                verdict = "duplicate billing"
+                passed = True  # acceptable: each postcard gets unique id
+            else:
+                verdict = "idempotent"
+                passed = True
+
+            _r("Idempotency", "5b.1 postcard: same text twice",
+               "idempotent or duplicate billing",
+               f"{verdict}; ids={id1},{id2}; same_text={same_text}",
+               passed,
+               f"card count={len(s.postcards)}")
+        finally:
+            srv._state = old_state
+            pm.save_postcard = original_save
+            pm.update_postcard = original_update
+            pm.record_footprint = original_record
+
+    except Exception as e:
+        _r("Idempotency", "5b.1 postcard: same text twice",
+           "no crash",
+           f"CRASH: {type(e).__name__}: {e}",
+           False, "")
+
+
+def probe_5b_2_mark_idempotency():
+    """Mark same name twice: should reject duplicate."""
+    try:
+        import tempfile
+        import nowhere.marks as marks_mod
+        import nowhere.server as srv
+
+        original_path_fn = marks_mod._marks_path
+        old_state = srv._state
+
+        s = WorldState()
+        s.pos = (39.9, 116.4)
+        srv._state = s
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marks_mod._marks_path = lambda: pathlib.Path(tmpdir) / "marks.json"
+
+            try:
+                r1 = srv.mark_impl("test_place")
+                r2 = srv.mark_impl("test_place")
+
+                r1_ok = r1["data"].get("error") is None
+                r2_dup = r2["data"].get("error") == "duplicate"
+
+                if r1_ok and r2_dup:
+                    verdict = "reasonable rejection"
+                    passed = True
+                elif r1_ok and not r2_dup:
+                    verdict = "overwrote silently"
+                    passed = True  # acceptable but notable
+                else:
+                    verdict = f"unexpected: r1={r1['data']}, r2={r2['data']}"
+                    passed = False
+
+                _r("Idempotency", "5b.2 mark: same name twice",
+                   "duplicate rejection or idempotent",
+                   f"{verdict}",
+                   passed,
+                   f"r1_err={r1['data'].get('error')}, r2_err={r2['data'].get('error')}")
+            finally:
+                srv._state = old_state
+                marks_mod._marks_path = original_path_fn
+
+    except Exception as e:
+        _r("Idempotency", "5b.2 mark: same name twice",
+           "no crash",
+           f"CRASH: {type(e).__name__}: {e}",
+           False, "")
+
+
+def probe_5b_3_open_door_idempotency():
+    """Open same destination twice: should resume or re-land."""
+    try:
+        import tempfile
+        import nowhere.server as srv
+        import nowhere.marks as marks_mod
+
+        original_path_fn = marks_mod._marks_path
+        old_state = srv._state
+
+        s = WorldState()
+        s.pos = (39.9, 116.4)
+        srv._state = s
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            marks_mod._marks_path = lambda: pathlib.Path(tmpdir) / "marks.json"
+            marks_mod.save("idem_test", 39.9, 116.4)
+
+            try:
+                r1 = asyncio.run(srv.open_door_impl(to="idem_test"))
+                state_after_1 = srv._state.pos
+                r2 = asyncio.run(srv.open_door_impl(to="idem_test"))
+                state_after_2 = srv._state.pos
+
+                text1 = r1.get("text", "")
+                text2 = r2.get("text", "")
+                resumed = r2.get("data", {}).get("resumed", False)
+
+                if resumed:
+                    verdict = "idempotent (resumed journey)"
+                    passed = True
+                elif "旅程" in text2 or "又来了" in text2:
+                    verdict = "reasonable: switched to existing journey"
+                    passed = True
+                else:
+                    verdict = "re-landed (new state)"
+                    passed = True  # acceptable
+
+                _r("Idempotency", "5b.3 open_door: same dest twice",
+                   "idempotent or re-land",
+                   f"{verdict}; resumed={resumed}",
+                   passed,
+                   f"pos1={state_after_1}, pos2={state_after_2}")
+            finally:
+                srv._state = old_state
+                marks_mod._marks_path = original_path_fn
+
+    except Exception as e:
+        _r("Idempotency", "5b.3 open_door: same dest twice",
+           "no crash",
+           f"CRASH: {type(e).__name__}: {e}",
+           False, "")
+
+
+# =====================================================================
+# Probe 5c: Vocabulary Demand (词汇需求统计) -- 1 probe
+# =====================================================================
+
+def probe_5c_1_direction_vocabulary():
+    """Feed 30 natural direction phrases to _parse_bearing, count recognition rate."""
+    try:
+        from nowhere.server import _parse_bearing
+
+        phrases = [
+            "往前", "继续", "回头", "朝亮处", "往里走",
+            "左拐", "后退", "向左", "向右", "往前走",
+            "往上", "往下", "朝山", "朝海", "顺风",
+            "逆风", "向东", "往西", "北", "南",
+            "东", "西", "左", "右", "前",
+            "后", "上", "下", "朝着太阳", "背着月亮",
+        ]
+
+        results = []
+        for phrase in phrases:
+            bearing, semantic, invalid = _parse_bearing(phrase)
+            recognized = not invalid
+            results.append({
+                "phrase": phrase,
+                "bearing": bearing,
+                "semantic": semantic,
+                "recognized": recognized,
+            })
+
+        recognized_list = [r["phrase"] for r in results if r["recognized"]]
+        rejected_list = [r["phrase"] for r in results if not r["recognized"]]
+        total = len(results)
+        count = len(recognized_list)
+        rate = count / total * 100 if total > 0 else 0
+
+        passed = True  # this is a statistical probe, always "passes"
+        _r("Vocabulary", "5c.1 direction vocabulary recognition (30 phrases)",
+           f"recognition rate",
+           f"{count}/{total} = {rate:.1f}%",
+           passed,
+           f"recognized: {recognized_list}")
+        if rejected_list:
+            print(f"       rejected: {rejected_list}")
+
+    except Exception as e:
+        _r("Vocabulary", "5c.1 direction vocabulary recognition (30 phrases)",
+           "no crash",
+           f"CRASH: {type(e).__name__}: {e}",
+           False, "")
+
+
+# =====================================================================
 # Probe 0b: Input Hardening (输入设防) -- 9 probes
 # =====================================================================
 
@@ -1160,6 +1383,16 @@ def main():
     probe_5_1_save_load_roundtrip()
     probe_5_2_corrupted_journey()
 
+    # Probe 5b: Idempotency
+    print("\n--- Probe 5b: Idempotency (幂等批) ---")
+    probe_5b_1_postcard_idempotency()
+    probe_5b_2_mark_idempotency()
+    probe_5b_3_open_door_idempotency()
+
+    # Probe 5c: Vocabulary Demand
+    print("\n--- Probe 5c: Vocabulary Demand (词汇需求统计) ---")
+    probe_5c_1_direction_vocabulary()
+
     # ── Generate report ───────────────────────────────────────────────
     print("\n" + "=" * 60)
     total = len(_results)
@@ -1167,8 +1400,9 @@ def main():
     failed = total - passed
     print(f"Total: {total}  Pass: {passed}  Fail: {failed}")
 
-    # New probe results (0b + 0c only)
-    new_results = [r for r in _results if r["chain"] in ("Input", "Polar")]
+    # New probe results (all chains not in the original 5)
+    _ORIGINAL_CHAINS = {"Time", "Walking", "Rendering", "Data", "State"}
+    new_results = [r for r in _results if r["chain"] not in _ORIGINAL_CHAINS]
     new_total = len(new_results)
     new_passed = sum(1 for r in new_results if r["pass"])
     new_failed = new_total - new_passed
@@ -1287,6 +1521,8 @@ def _generate_new_probe_sections(
     for chain_name, probes in chains.items():
         label = {"Input": "Probe 0b: Input Hardening (输入设防)",
                  "Polar": "Probe 0c: Polar/Date Line (极地日界线)",
+                 "Idempotency": "Probe 5b: Idempotency (幂等批)",
+                 "Vocabulary": "Probe 5c: Vocabulary Demand (词汇需求统计)",
                  }.get(chain_name, chain_name)
         lines.append(f"### {label}")
         lines.append("")

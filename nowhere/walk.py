@@ -8,7 +8,7 @@ from nowhere import terrain
 from nowhere.state import WorldState
 
 # ── Constants ───────────────────────────────────────────────────────
-_DIST_MIN = 0.2
+_DIST_MIN = 0.05  # 50 meters minimum (card 7: short-distance probing)
 _DIST_MAX = 5.0
 _LAND_SPEED_KMH = 4.0
 _WATER_SPEED_KMH = 1.5
@@ -193,6 +193,7 @@ def step(
 
     # ── Update position and path ─────────────────────────────────────
     state.pos = (new_lat, new_lon)
+    state.heading = bearing
     state.path.append({
         "lat": new_lat,
         "lon": new_lon,

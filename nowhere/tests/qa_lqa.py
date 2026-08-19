@@ -213,10 +213,17 @@ def layer1_batch_sample(max_places: int = 30, walk_steps: int = 5) -> list[dict]
                     "hemisphere": "unknown",
                 })
 
-    # Append a few random wilderness points (no place name)
-    rng = random.Random(99)
+    # Append wilderness points covering diverse biomes
+    # Include tundra (high lat), desert (low lat inland), mountain (high elev)
     wilderness_points = [
-        (rng.uniform(-60, 60), rng.uniform(-180, 180)) for _ in range(5)
+        (70.0, 25.0),    # tundra (northern Norway)
+        (-75.0, 130.0),  # tundra (Antarctica coast)
+        (25.0, 45.0),    # desert (Saudi Arabia)
+        (-23.0, 135.0),  # desert (Australia outback)
+        (47.0, 10.0),    # mountain (Swiss Alps)
+        (28.0, 86.0),    # mountain (Himalayas)
+        (0.0, -60.0),    # rainforest (Amazon)
+        (65.0, -18.0),   # tundra (Iceland)
     ]
     for lat, lon in wilderness_points:
         for tcfg in times:

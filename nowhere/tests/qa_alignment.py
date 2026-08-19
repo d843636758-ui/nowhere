@@ -1,4 +1,4 @@
-"""Card 23: 风俗/内容错配体检 — 八亚种审计脚本(只量不修)。
+"""Card 23: 风俗/内容错配体检 — 十一亚种审计脚本(只量不修)。
 
 Usage:
     cd C:\\Users\\84989\\Desktop\\nowhere_repo
@@ -13,6 +13,8 @@ import math
 import pathlib
 import re
 import sys
+import urllib.request
+import urllib.error
 
 # GBK console fix
 sys.stdout.reconfigure(encoding="utf-8")
@@ -1041,11 +1043,293 @@ def audit_8_fabricated_facts():
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# 9. Radio Stream Decay (电台流腐烂)
+# ═══════════════════════════════════════════════════════════════════════
+
+def audit_9_radio_stream_decay():
+    """Sub-type 9: HEAD request each stream URL in radio_fallback.json."""
+    stations = _load_json(_DATA / "radio_fallback.json")
+    if not isinstance(stations, list):
+        return []
+
+    findings = []
+    for st in stations:
+        url = st.get("stream_url", "")
+        name = st.get("name", "?")
+        if not url:
+            continue
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            req.add_header("User-Agent", "Mozilla/5.0 (QA-Alignment-Check)")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = resp.getcode()
+                if status >= 400:
+                    findings.append({
+                        "type": "电台流死亡",
+                        "name": name,
+                        "url": url,
+                        "status": status,
+                        "detail": f"HTTP {status}",
+                        "severity": "实锤",
+                    })
+        except urllib.error.HTTPError as e:
+            findings.append({
+                "type": "电台流死亡",
+                "name": name,
+                "url": url,
+                "status": e.code,
+                "detail": f"HTTP {e.code}",
+                "severity": "实锤",
+            })
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            findings.append({
+                "type": "电台流死亡",
+                "name": name,
+                "url": url,
+                "status": "timeout/error",
+                "detail": str(e)[:80],
+                "severity": "实锤",
+            })
+        except Exception as e:
+            findings.append({
+                "type": "电台流死亡",
+                "name": name,
+                "url": url,
+                "status": "error",
+                "detail": str(e)[:80],
+                "severity": "可疑",
+            })
+
+    return findings
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 10. Ocean Dead Zone (海上死寂)
+# ═══════════════════════════════════════════════════════════════════════
+
+# Coastal cities to simulate walking into the ocean
+_COASTAL_CITIES = [
+    ("悉尼", -33.87, 151.21, 0.02, 0.02),    # walk SE into Tasman Sea
+    ("迈阿密", 25.76, -80.19, 0.02, -0.02),   # walk SE into Atlantic
+    ("里斯本", 38.72, -9.14, 0.0, -0.02),     # walk W into Atlantic
+    ("开普敦", -33.93, 18.42, -0.02, -0.02),  # walk SW into Atlantic
+    ("东京", 35.68, 139.69, 0.02, 0.02),      # walk SE into Pacific
+    ("香港", 22.32, 114.17, 0.02, 0.02),      # walk SE into South China Sea
+    ("旧金山", 37.77, -122.42, 0.0, -0.02),   # walk W into Pacific
+    ("雅典", 37.98, 23.73, 0.02, 0.02),       # walk NE into Aegean
+]
+
+
+def _check_ocean_content(lat, lon, lc_data, hum_places):
+    """Check if any localcolor/humanities data exists near an ocean coordinate.
+
+    Returns (lc_hits, hum_hits, enc_hits) counts.
+    Since data is keyed by place name (not coordinates), ocean points
+    will almost always have zero hits.
+    """
+    lc_hits = 0
+    hum_hits = 0
+    enc_hits = 0
+
+    # localcolor: keyed by place name, so check all places for proximity
+    # (in practice, ocean coords won't match any city name)
+    for place, entry in lc_data.items():
+        # Check if any localcolor categories have content
+        for cat in ("物产", "声音", "痕迹", "美食", "节律", "感受", "植被"):
+            items = entry.get(cat, [])
+            if items:
+                lc_hits += 1
+                break
+
+    # humanities: keyed by place name
+    for place, entry in hum_places.items():
+        if place.startswith("_"):
+            continue
+        if not isinstance(entry, dict):
+            continue
+        for cat in ("事件", "人物", "作品"):
+            cards = entry.get(cat, [])
+            if cards:
+                hum_hits += 1
+                break
+
+    return lc_hits, hum_hits, enc_hits
+
+
+def audit_10_ocean_dead_zone():
+    """Sub-type 10: Simulate walking into the ocean and check content coverage."""
+    # Load all localcolor data
+    lc_data = {}
+    for fname in ["localcolor.json", "localcolor_china.json",
+                   "localcolor_japan_korea_sea.json",
+                   "localcolor_americas_africa_oceania.json"]:
+        data = _load_json(_DATA / fname)
+        lc_data.update(data)
+
+    # Load humanities
+    hum_raw = _load_json(_DATA / "humanities.json")
+    hum_places = hum_raw.get("places", {})
+
+    findings = []
+
+    for city_name, start_lat, start_lon, dlat, dlon in _COASTAL_CITIES:
+        # Walk 10 steps into the ocean
+        ocean_steps = []
+        for step in range(1, 11):
+            lat = start_lat + dlat * step
+            lon = start_lon + dlon * step
+            ocean_steps.append((lat, lon))
+
+        # Check content at the 10th step (deep ocean)
+        deep_lat, deep_lon = ocean_steps[-1]
+        lc_hits, hum_hits, enc_hits = _check_ocean_content(
+            deep_lat, deep_lon, lc_data, hum_places
+        )
+
+        # Also check intermediate steps to see when content drops to zero
+        first_zero_step = None
+        for step_idx, (lat, lon) in enumerate(ocean_steps, 1):
+            lc_h, hum_h, enc_h = _check_ocean_content(lat, lon, lc_data, hum_places)
+            if lc_h == 0 and hum_h == 0 and enc_h == 0:
+                first_zero_step = step_idx
+                break
+
+        total_hits = lc_hits + hum_hits + enc_hits
+        if total_hits == 0:
+            findings.append({
+                "type": "海上内容黑洞",
+                "city": city_name,
+                "start": (start_lat, start_lon),
+                "end": (deep_lat, deep_lon),
+                "steps": 10,
+                "first_zero_step": first_zero_step,
+                "lc_hits": lc_hits,
+                "hum_hits": hum_hits,
+                "enc_hits": enc_hits,
+                "detail": f"从 {city_name} 往海里走10步, localcolor={lc_hits}, humanities={hum_hits}, encounters={enc_hits}",
+                "severity": "实锤",
+            })
+        else:
+            findings.append({
+                "type": "海上有内容(异常)",
+                "city": city_name,
+                "start": (start_lat, start_lon),
+                "end": (deep_lat, deep_lon),
+                "steps": 10,
+                "lc_hits": lc_hits,
+                "hum_hits": hum_hits,
+                "enc_hits": enc_hits,
+                "detail": f"从 {city_name} 往海里走10步, 但仍有内容: localcolor={lc_hits}, humanities={hum_hits}",
+                "severity": "可疑",
+            })
+
+    return findings
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 11. Memory Bloat (记忆膨胀)
+# ═══════════════════════════════════════════════════════════════════════
+
+def audit_11_memory_bloat():
+    """Sub-type 11: Analyze caching patterns in source code for unbounded growth."""
+    findings = []
+
+    # ── geocode._geocode_cache ──
+    geocode_path = _REPO / "nowhere" / "geocode.py"
+    if geocode_path.exists():
+        geocode_src = geocode_path.read_text(encoding="utf-8")
+        # Check for unbounded dict growth
+        if "_geocode_cache: dict" in geocode_src and "del " not in geocode_src:
+            # Count how many keys it could accumulate
+            # It caches every unique place name lookup
+            findings.append({
+                "type": "无限增长缓存",
+                "module": "geocode._geocode_cache",
+                "detail": "模块级 dict, 无 TTL, 无 eviction, 每次 geocode.lookup() 新地名都会增长",
+                "severity": "实锤",
+                "evidence": "_geocode_cache: dict[str, tuple[float, float] | None] = {}",
+            })
+
+    # ── server._load_scene_file cache ──
+    server_path = _REPO / "nowhere" / "server.py"
+    if server_path.exists():
+        server_src = server_path.read_text(encoding="utf-8")
+        # _load_scene_file uses setattr on the function itself
+        if "setattr(_load_scene_file" in server_src:
+            findings.append({
+                "type": "函数级缓存(有界)",
+                "module": "server._load_scene_file",
+                "detail": "用 setattr 缓存场景文件, 但场景文件数量固定(~10个), 实际有界",
+                "severity": "人审",
+                "evidence": "setattr(_load_scene_file, cache_key, result)",
+            })
+
+        # _SOUVENIRS_BY_PLACE
+        if "_SOUVENIRS_BY_PLACE: dict | None = None" in server_src:
+            findings.append({
+                "type": "模块级缓存(有界)",
+                "module": "server._SOUVENIRS_BY_PLACE",
+                "detail": "从 souvenirs_by_place.json 加载, 只加载一次, 有界",
+                "severity": "人审",
+                "evidence": "_SOUVENIRS_BY_PLACE: dict | None = None",
+            })
+
+        # _DISCOVERY_CACHE
+        if "_DISCOVERY_CACHE: list[str] | None = None" in server_src:
+            findings.append({
+                "type": "模块级缓存(有界)",
+                "module": "server._DISCOVERY_CACHE",
+                "detail": "从 scene_walk_discovery.txt 加载, 只加载一次, 有界",
+                "severity": "人审",
+                "evidence": "_DISCOVERY_CACHE: list[str] | None = None",
+            })
+
+        # State file growth
+        if "_state.save()" in server_src:
+            findings.append({
+                "type": "状态文件增长",
+                "module": "server._state (WorldState)",
+                "detail": "每次 walk/open_door 都调用 _state.save(), journey.json 包含 path/postcards/messages 等累积数据",
+                "severity": "可疑",
+                "evidence": "_state.save() called in walk_impl, open_door, wait_impl, look_around",
+            })
+
+    # ── placememory footprints ──
+    placememory_path = _REPO / "nowhere" / "placememory.py"
+    if placememory_path.exists():
+        pm_src = placememory_path.read_text(encoding="utf-8")
+        if "record_footprint" in pm_src:
+            # Check if footprints have size limits
+            has_limit = "max" in pm_src and ("footprint" in pm_src or "limit" in pm_src)
+            if not has_limit:
+                findings.append({
+                    "type": "足迹文件无限增长",
+                    "module": "placememory.footprints",
+                    "detail": "每次 walk/listen/look 都记录 footprint, 无大小限制",
+                    "severity": "可疑",
+                    "evidence": "record_footprint() called in walk_impl, listen_impl, look_around_impl",
+                })
+
+    # ── seen_cards / seen_humanities sets ──
+    if server_path.exists():
+        if "_state.seen_cards" in server_src and "clear" not in server_src:
+            findings.append({
+                "type": "seen集合无限增长",
+                "module": "server._state.seen_cards / seen_humanities",
+                "detail": "每次触发 localcolor/humanities 卡都添加到 seen 集合, 跨门保留, 无清理",
+                "severity": "可疑",
+                "evidence": "_state.seen_cards.add() in walk_impl, no .clear() found",
+            })
+
+    return findings
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Report generation
 # ═══════════════════════════════════════════════════════════════════════
 
 def generate_report():
-    """Run all 8 audits and generate report."""
+    """Run all 11 audits and generate report."""
     lines = []
     lines.append("# QA Alignment Report (Card 23)")
     lines.append("")
@@ -1057,7 +1341,7 @@ def generate_report():
     lines.append("")
 
     # ── 1. Region Rectangles ──
-    print("[1/8] 审计文化区矩形...")
+    print("[1/11] 审计文化区矩形...")
     mismatches, known_five = audit_1_region_rectangles()
     lines.append("## 1. 文化区矩形 (Cultural Region Rectangles)")
     lines.append("")
@@ -1086,7 +1370,7 @@ def generate_report():
         lines.append("")
 
     # ── 2. Key Drift ──
-    print("[2/8] 审计地名键漂移...")
+    print("[2/11] 审计地名键漂移...")
     drift = audit_2_key_drift()
     lines.append("## 2. 地名键漂移 (Place Name Key Drift)")
     lines.append("")
@@ -1105,7 +1389,7 @@ def generate_report():
         lines.append("")
 
     # ── 3. Country Codes ──
-    print("[3/8] 审计国家码边界...")
+    print("[3/11] 审计国家码边界...")
     cc_findings, empty_zh_samples = audit_3_country_codes()
     lines.append("## 3. 国家码边界错 (Country Code Boundary Errors)")
     lines.append("")
@@ -1124,7 +1408,7 @@ def generate_report():
         lines.append("")
 
     # ── 4. Calendar Drift ──
-    print("[4/8] 审计历法漂移...")
+    print("[4/11] 审计历法漂移...")
     cal = audit_4_calendar()
     lines.append("## 4. 历法漂移 (Calendar Drift)")
     lines.append("")
@@ -1138,7 +1422,7 @@ def generate_report():
     lines.append("")
 
     # ── 5. City vs Scenic ──
-    print("[5/8] 审计城市点vs景区面...")
+    print("[5/11] 审计城市点vs景区面...")
     scenic = audit_5_city_vs_scenic()
     lines.append("## 5. 城市点 vs 景区面 (City Point vs Scenic Area)")
     lines.append("")
@@ -1150,7 +1434,7 @@ def generate_report():
     lines.append("")
 
     # ── 6. Species ──
-    print("[6/8] 审计物种/植被超分布...")
+    print("[6/11] 审计物种/植被超分布...")
     species = audit_6_species()
     lines.append("## 6. 物种/植被超分布 (Species/Vegetation Distribution)")
     lines.append("")
@@ -1162,7 +1446,7 @@ def generate_report():
     lines.append("")
 
     # ── 7. Anachronisms ──
-    print("[7/8] 审计时代错...")
+    print("[7/11] 审计时代错...")
     anachronisms = audit_7_anachronisms()
     lines.append("## 7. 时代错 (Era Anachronisms)")
     lines.append("")
@@ -1175,7 +1459,7 @@ def generate_report():
     lines.append("")
 
     # ── 8. AI Facts ──
-    print("[8/8] 审计AI编的事实...")
+    print("[8/11] 审计AI编的事实...")
     ai_facts, ai_summary = audit_8_fabricated_facts()
     lines.append("## 8. AI编的事实 (AI-Fabricated Facts)")
     lines.append("")
@@ -1190,6 +1474,64 @@ def generate_report():
         lines.append(f"  - 文案: \"{f['text']}\"")
     lines.append("")
 
+    # ── 9. Radio Stream Decay ──
+    print("[9/11] 审计电台流腐烂...")
+    radio_dead = audit_9_radio_stream_decay()
+    lines.append("## 9. 电台流腐烂 (Radio Stream Decay)")
+    lines.append("")
+    lines.append(f"总检测电台: {len(_load_json(_DATA / 'radio_fallback.json'))}")
+    lines.append(f"死亡流数: {len(radio_dead)}")
+    lines.append("")
+
+    if radio_dead:
+        lines.append("### 死亡流列表")
+        lines.append("")
+        for f in radio_dead:
+            lines.append(f"- [{f['severity']}] **{f['name']}**: {f['detail']}")
+            lines.append(f"  - URL: {f['url']}")
+        lines.append("")
+    else:
+        lines.append("所有电台流均可访问。")
+        lines.append("")
+
+    # ── 10. Ocean Dead Zone ──
+    print("[10/11] 审计海上死寂...")
+    ocean_zones = audit_10_ocean_dead_zone()
+    lines.append("## 10. 海上死寂 (Ocean Dead Zone)")
+    lines.append("")
+    lines.append(f"检测沿海城市: {len(_COASTAL_CITIES)}")
+    lines.append(f"内容黑洞数: {len([f for f in ocean_zones if f['type'] == '海上内容黑洞'])}")
+    lines.append("")
+
+    for f in ocean_zones:
+        lines.append(f"- [{f['severity']}] **{f['city']}**: {f['detail']}")
+        if f.get("first_zero_step"):
+            lines.append(f"  - 第 {f['first_zero_step']} 步开始内容归零")
+    lines.append("")
+
+    # ── 11. Memory Bloat ──
+    print("[11/11] 审计记忆膨胀...")
+    mem_bloat = audit_11_memory_bloat()
+    lines.append("## 11. 记忆膨胀 (Memory Bloat)")
+    lines.append("")
+    lines.append(f"总发现: {len(mem_bloat)}")
+    lines.append("")
+
+    by_severity = {}
+    for f in mem_bloat:
+        by_severity.setdefault(f["severity"], []).append(f)
+
+    for sev in ["实锤", "可疑", "人审"]:
+        items = by_severity.get(sev, [])
+        if items:
+            lines.append(f"### {sev} ({len(items)})")
+            lines.append("")
+            for f in items:
+                lines.append(f"- **{f['module']}**: {f['detail']}")
+                if f.get("evidence"):
+                    lines.append(f"  - 证据: `{f['evidence']}`")
+            lines.append("")
+
     # ── Summary ──
     lines.append("---")
     lines.append("")
@@ -1197,7 +1539,8 @@ def generate_report():
     lines.append("")
 
     total = (len(mismatches) + len(drift) + len(cc_findings) + len(cal)
-             + len(scenic) + len(species) + len(anachronisms) + len(ai_facts))
+             + len(scenic) + len(species) + len(anachronisms) + len(ai_facts)
+             + len(radio_dead) + len(ocean_zones) + len(mem_bloat))
 
     lines.append(f"**总发现数: {total}**")
     lines.append("")
