@@ -89,6 +89,8 @@ def _serialized_action(func):
 _BEARING_MAP: dict[str, float] = {
     "N": 0, "NE": 45, "E": 90, "SE": 135,
     "S": 180, "SW": 225, "W": 270, "NW": 315,
+    "NORTH": 0, "NORTHEAST": 45, "EAST": 90, "SOUTHEAST": 135,
+    "SOUTH": 180, "SOUTHWEST": 225, "WEST": 270, "NORTHWEST": 315,
     "北": 0, "东北": 45, "东": 90, "东南": 135,
     "南": 180, "西南": 225, "西": 270, "西北": 315,
 }
@@ -958,6 +960,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         _web_url_announced = True
 
     _state.last_text = prose
+    _record_footprint("land", prose)
 
     # ── 6. Save complete state and environment snapshot ───────────────
     _state.last_env = {
@@ -1357,6 +1360,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                 prose += f"\n{ souvenir['desc']}"
 
     _state.last_text = prose
+    _record_footprint("walk", prose)
     _state.save()
 
     # ── 8. Return ────────────────────────────────────────────────────
@@ -1450,9 +1454,11 @@ async def listen_impl(seconds: int = 10) -> dict:
     # ── 1. Find nearest station (sticky) ─────────────────────────────
     station = await _get_radio(lat, lon)
     if not station:
-        _state.last_text = sound_text
+        full_text = sound_text + "收不到电台。"
+        _state.last_text = full_text
+        _record_footprint("listen", full_text)
         _state.save()
-        return {"text": sound_text + "收不到电台。", "data": {"stream_url": None, "soundscape": sound_text}}
+        return {"text": full_text, "data": {"stream_url": None, "soundscape": sound_text}}
 
     # ── 2. Capture & analyse ─────────────────────────────────────────
     stream_url = station["stream_url"]
@@ -1532,6 +1538,7 @@ async def listen_impl(seconds: int = 10) -> dict:
 
     full_text = sound_text + radio_text
     _state.last_text = full_text
+    _record_footprint("listen", full_text, stream_url=stream_url, station=station)
     _state.save()
 
     return {
@@ -1651,6 +1658,7 @@ async def look_around_impl() -> dict:
     # ── Compose ─────────────────────────────────────────────────────
     text = "\n".join(sections)
     _state.last_text = text
+    _record_footprint("look", text)
     _state.save()
     return {"text": text, "data": {"exploration": True}}
 
@@ -1759,6 +1767,7 @@ async def wait_impl(hours: float = 1.0) -> dict:
         "sky": env.get("sky"),
     }
     _state.last_text = text
+    _record_footprint("wait", text)
     _state.save()
 
     return {
@@ -1796,7 +1805,9 @@ async def ask_impl(topic: str) -> dict:
     if not result:
         return {"text": "关于这个,这里没有留下文字。", "data": {}}
 
-    return {"text": result.get("extract", ""), "data": result}
+    text = result.get("extract", "")
+    _record_footprint("ask", text)
+    return {"text": text, "data": result}
 
 
 @_serialized_action
@@ -1968,6 +1979,7 @@ async def walk_to_impl(place: str) -> dict:
 
     text = "\n".join(lines)
     _state.last_text = text
+    _record_footprint("walk_to", text)
     _state.save()
     return {
         "text": text,
@@ -1994,8 +2006,10 @@ def mark_impl(name: str, note: str = "", overwrite: bool = False) -> dict:
             "text": f"「{name}」已经标过了。要覆盖的话用 mark 的覆盖选项。",
             "data": {"error": "duplicate", "existing": existing},
         }
+    text = f"已标记「{name}」。"
+    _record_footprint("mark", text)
     return {
-        "text": f"已标记「{name}」。",
+        "text": text,
         "data": {"name": name, "lat": lat, "lon": lon, "note": note},
     }
 
@@ -2054,7 +2068,7 @@ def where_am_i_impl() -> dict:
 
 
 def _postmark(lat: float, lon: float) -> dict:
-    """邮戳: 全是真实数据。"""
+    """邮戳保留旅程内当地时间；现实寄出时间由明信片另行记录。"""
     stamp: dict = {
         "place": _state.place_name or f"{lat:.2f}, {lon:.2f}",
         "lat": round(lat, 4),
@@ -2079,6 +2093,27 @@ def _postmark(lat: float, lon: float) -> dict:
     stamp["surface"] = _last_env_surface() or "grass"
     stamp["phase"] = (env.get("sky") or {}).get("phase", "day")
     return stamp
+
+
+def _record_footprint(
+    action: str,
+    text: str,
+    *,
+    stream_url: str | None = None,
+    station: dict | None = None,
+) -> None:
+    """记录一条可见旅行足迹，不与 WorldState 的存档周期耦合。"""
+    if _state.pos is None or not text:
+        return
+    placememory.record_footprint(
+        action,
+        text,
+        _state.pos[0],
+        _state.pos[1],
+        _state.place_name,
+        stream_url=stream_url,
+        station=station,
+    )
 
 
 def _poster_front_async(card: dict, lat: float, lon: float) -> None:
@@ -2121,11 +2156,13 @@ def send_postcard_impl(text: str) -> dict:
         "id": _postcard_counter,
         "text": text,
         "stamp": _postmark(lat, lon),
+        "sent_at": datetime.now(timezone.utc).isoformat(),
         "replies": [],
         "front_img": None,  # 异步生成,好了挂上;没有就前端 SVG 兜底
     }
     _state.postcards.append(card)
     placememory.save_postcard(card)  # 落盘: 文件是真相,网页旁观者看得见
+    _record_footprint("postcard", text)
     _state.save()
     _poster_front_async(card, lat, lon)
 

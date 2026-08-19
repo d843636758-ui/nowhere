@@ -134,6 +134,7 @@ def save_seen_humanities(keys: set[str]) -> None:
 # ── 明信片落盘: 文件是真相,谁寄的网页都看得见 ─────────────────────
 
 _POSTCARDS_CAP = 100
+_FOOTPRINTS_CAP = 200
 
 
 def save_postcard(card: dict) -> None:
@@ -198,3 +199,83 @@ def delete_postcard(card_id: int) -> bool:
     data["items"] = keep
     _dump("postcards.json", data)
     return True
+
+
+# ── 旅行足迹 ──────────────────────────────────────────────
+
+def record_footprint(
+    action: str,
+    text: str,
+    lat: float,
+    lon: float,
+    place: str | None = None,
+    stream_url: str | None = None,
+    station: dict | None = None,
+) -> None:
+    """持久化一次旅行行动，时间为现实 UTC。"""
+    from datetime import datetime, timezone
+
+    data = _load("footprints.json")
+    items = data.get("items", [])
+    item = {
+        "action": action,
+        "text": text,
+        "lat": round(lat, 4),
+        "lon": round(lon, 4),
+        "place": place or "",
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
+    clean_stream_url = str(stream_url or "").strip()
+    if clean_stream_url.startswith(("http://", "https://")):
+        item["stream_url"] = clean_stream_url
+    if station:
+        public_station = {
+            key: station[key]
+            for key in ("name", "genre", "country")
+            if station.get(key) not in (None, "")
+        }
+        if public_station:
+            item["station"] = public_station
+    items.append(item)
+    data["items"] = items[-_FOOTPRINTS_CAP:]
+    _dump("footprints.json", data)
+
+
+def footprints() -> list[dict]:
+    """按新到旧返回旅行行动。"""
+    return list(reversed(_load("footprints.json").get("items", [])))
+
+
+def journey_footprints() -> list[dict]:
+    """返回已记录行动，并诚实补充旧数据中可确认的旅程证据。"""
+    items = footprints()
+
+    for card in postcards():
+        if card.get("sent_at"):
+            continue
+        stamp = card.get("stamp") or {}
+        items.append({
+            "action": "postcard",
+            "text": card.get("text", ""),
+            "lat": stamp.get("lat"),
+            "lon": stamp.get("lon"),
+            "place": stamp.get("place", ""),
+            "at": None,
+            "journey_at": stamp.get("local_time", ""),
+            "legacy": True,
+        })
+
+    for landing in landings():
+        count = int(landing.get("count", 0))
+        items.append({
+            "action": "land_history",
+            "text": f"在这里留下了 {count} 次抵达记录。",
+            "lat": landing.get("lat"),
+            "lon": landing.get("lon"),
+            "place": landing.get("place", ""),
+            "at": landing.get("last"),
+            "legacy": True,
+        })
+
+    items.sort(key=lambda item: item.get("at") or item.get("journey_at") or "", reverse=True)
+    return items

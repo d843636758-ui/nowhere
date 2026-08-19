@@ -65,6 +65,14 @@ class TestB9WalkInvalidDirection:
         r = await server.walk_impl("N", 2.0)
         assert "direction_warning" not in r["data"]
 
+    @pytest.mark.asyncio
+    async def test_full_english_direction_no_warning(self, respx_mock, tmp_path, monkeypatch):
+        monkeypatch.setenv("NOWHERE_HOME", str(tmp_path))
+        respx_mock.route().mock(side_effect=httpx.TimeoutException("t"))
+        await server.open_door_impl()
+        r = await server.walk_impl("north", 2.0)
+        assert "direction_warning" not in r["data"]
+
 
 # ── B10: listen seconds validation ────────────────────────────────────
 
