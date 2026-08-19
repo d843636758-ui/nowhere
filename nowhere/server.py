@@ -2248,7 +2248,8 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
 
     # ── 本地特色：localcolor 优先 ─────────────────────────────────
     local_card = localcolor.draw(place_name, _state.seen_cards, _rng,
-                                 local_hour=local_hour, country_code=cc, intent=_state.intent)
+                                 local_hour=local_hour, country_code=cc, intent=_state.intent,
+                                 lat=lat, lon=lon)
     if local_card:
         _state.seen_cards.add(local_card["key"])
         placememory.save_seen_cards(place_name, _state.seen_cards)
@@ -3067,7 +3068,8 @@ async def look_around_impl() -> dict:
     cc = country.country_code_of(lat, lon)
 
     card = localcolor.draw(place, _state.seen_cards, _rng,
-                           local_hour=local_hour, country_code=cc, intent=_state.intent)
+                           local_hour=local_hour, country_code=cc, intent=_state.intent,
+                           lat=lat, lon=lon)
     if card:
         _state.seen_cards.add(card["key"])
         placememory.save_seen_cards(place, _state.seen_cards)

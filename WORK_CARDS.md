@@ -699,6 +699,45 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 
 ---
 
+## 卡49:旅程状态机(把九摊状态收成一台机器)— 依赖卡47/48 落地后做
+
+只许改:nowhere/state.py、nowhere/server.py、新建 nowhere/journey_state.py、nowhere/tests/test_journey_state.py(新建)
+
+背景:状态现在散在九摊——blind(盲开)/intent(意图)/errand(差事)/drift_seen(漂流)/heading(朝向)/narrative.direction/biome/seen_cards/wilderness_depth。每加一个功能加一摊,互相不知道对方存在(盲开时该不该出意图卡?差事在身时该不该出意外?现在是隐式约定,没写死)。
+
+**做成一台显式状态机**(journey_state.py):
+
+```
+状态枚举:
+  LANDING    刚落地,establish 段渲染中
+  EXPLORING  正常走(默认)
+  ERRAND     差事在身(state.errand 非空)——部分行为抑制(意外层降频,差事优先)
+  BLIND      盲开中(state.blind)——humanities/节日/痕迹链禁抽
+  WILDERNESS 荒深(wilderness_depth > 100km)——密度衰减档
+  FAREWELL   告别/切换中(卡27)——只出不进
+  RIDING     在水上(mode=water)——遭遇池换
+
+转移规则(写死,不靠隐式):
+  open_door  → LANDING
+  establish 渲染完 → EXPLORING(或 BLIND,如果 blind=True)
+  walk 且 errand 在身 → ERRAND
+  walk 且 wilderness_depth > 100 → WILDERNESS
+  walk 且 mode=water → RIDING
+  deliver/errand 完成 → EXPLORING
+  guess 猜中/reveal → EXPLORING(从 BLIND)
+  switch_journey/open_door 新地 → FAREWELL → (新地) LANDING
+```
+
+1. journey_state.py 一个 `JourneyStateMachine` 类:持有当前状态+转移表,`transition(event, state) -> new_state`,非法转移(如 FAREWELL→EXPLORING 不走 LANDING)报错。
+2. state.py 的 WorldState 加 `journey_phase: str`(序列化),初始 "LANDING";各 impl 在关键点调 `jsm.transition(...)` 更新。
+3. **各功能读状态机,不再各自判断**:encounters/时间轴/意外/同游者 在 should() 里查 `state.journey_phase`(BLIND 时禁 humanities/节日/痕迹链;ERRAND 时意外层概率减半;WILDERNESS 时密度衰减档生效)——把卡16/卡28/卡40 的隐式约定写进状态机转移表,一处定义。
+4. **不改卡逻辑**:状态机是"谁在什么时候能说话"的调度器,卡内容/选择/渲染不变。
+5. test_journey_state.py:各转移合法/非法;BLIND 时 humanities 不出现;ERRAND 时意外概率降;FAREWELL→LANDING 强制经 establish;状态序列化往返。
+
+验收:新测试绿;状态机转移表文档化(类 docstring 里画 ASCII 图);盲开+差事+荒深三状态共存时行为可预测。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py

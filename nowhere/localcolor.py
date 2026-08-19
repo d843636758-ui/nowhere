@@ -61,6 +61,8 @@ def draw(
     local_hour: int | None = None,
     country_code: str | None = None,
     intent: str | None = None,
+    lat: float = 0.0,
+    lon: float = 0.0,
 ) -> dict | None:
     """抽一张没见过的卡 {"category", "text", "key"};抽完或无此地 → None。
 
@@ -91,7 +93,7 @@ def draw(
     if unseen_handwritten == 0:
         # 只有本地没有特色食物时，才用国家级食物兜底
         if not has_local_food:
-            for i, item in enumerate(baked.food_items(country_code)):
+            for i, item in enumerate(baked.food_items(country_code, lat, lon)):
                 key = f"{place_name}/烘焙美食/{i}"
                 if key not in seen:
                     rendered = baked.render_food(item, rng)
