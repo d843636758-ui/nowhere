@@ -361,7 +361,7 @@ def probe_2_3_cliff_blocked_no_time():
 
 
 def probe_2_4_clamp_behavior():
-    """walk(0.01) and walk(100): clamp to [0.05, 5.0], text should match."""
+    """walk(0.01) and walk(100): clamp to [0.2, 5.0], text should match."""
     s = WorldState()
     s.pos = (40.0, 116.0)
     s.landed_at = datetime(2026, 7, 15, 10, 0, 0, tzinfo=timezone.utc)
@@ -383,14 +383,14 @@ def probe_2_4_clamp_behavior():
     dist_max = result_max.get("dist_km", 0)
     clamped_max = result_max.get("clamped", False)
 
-    min_ok = dist_min >= 0.05 and clamped_min
+    min_ok = dist_min >= 0.2 and clamped_min
     max_ok = dist_max <= 5.0 and clamped_max
     passed = min_ok and max_ok
-    _r("Walking", "2.4 clamp 0.01→0.05, 100→5.0",
-       f"dist_min>=0.05, dist_max<=5.0, both clamped",
+    _r("Walking", "2.4 clamp 0.01→0.2, 100→5.0",
+       f"dist_min>=0.2, dist_max<=5.0, both clamped",
        f"min: dist={dist_min},clamped={clamped_min}; max: dist={dist_max},clamped={clamped_max}",
        passed,
-       f"_DIST_MIN=0.05, _DIST_MAX=5.0")
+       f"_DIST_MIN=0.2, _DIST_MAX=5.0")
 
 
 def probe_2_5_eight_directions_return():
