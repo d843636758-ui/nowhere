@@ -340,6 +340,83 @@ def _load_meta() -> dict[str, list[dict]]:
     return _META_CACHE
 
 
+# ── Card 33: scene_card_meta (structured conditions per card text) ────
+_CARD_META_CACHE: dict[str, dict] | None = None
+
+
+def load_scene_card_meta() -> dict[str, dict]:
+    """Load scene_card_meta.json (text → {seasons, lat_band, biomes}).
+
+    Built at build time from scenes_src/*.json metadata.
+    Used at runtime for structured filtering instead of keyword blacklists.
+    """
+    global _CARD_META_CACHE
+    if _CARD_META_CACHE is None:
+        fp = _SCENE_DIR / "scene_card_meta.json"
+        if fp.exists():
+            _CARD_META_CACHE = json.loads(fp.read_text(encoding="utf-8"))
+        else:
+            _CARD_META_CACHE = {}
+    return _CARD_META_CACHE
+
+
+def get_card_lat_band(lat: float) -> str:
+    """Map latitude to card lat_band category.
+
+    Returns one of: "polar", "north_temperate", "south_temperate", "tropics"
+    Matching the values used in scenes_src/*.json metadata.
+    """
+    abs_lat = abs(lat)
+    if abs_lat > 66:
+        return "polar"
+    if abs_lat < 23.5:
+        return "tropics"
+    if lat > 0:
+        return "north_temperate"
+    return "south_temperate"
+
+
+def filter_by_card_meta(
+    pool: list[str],
+    current_season: str,
+    current_lat: float,
+    current_biome: str,
+) -> list[str]:
+    """Filter a text pool by structured card metadata.
+
+    Cards with seasons restriction: only appear if current_season matches.
+    Cards with lat_band restriction: only appear if current lat_band matches.
+    Cards with no restrictions (empty arrays): always eligible.
+    """
+    meta = load_scene_card_meta()
+    if not meta:
+        return pool  # no meta → no filtering
+
+    current_lat_band = get_card_lat_band(current_lat)
+    filtered: list[str] = []
+
+    for text in pool:
+        m = meta.get(text)
+        if not m:
+            # No metadata entry = universal card, always eligible
+            filtered.append(text)
+            continue
+
+        # Season check
+        card_seasons = m.get("seasons", [])
+        if card_seasons and current_season not in card_seasons:
+            continue
+
+        # Lat band check
+        card_lat_band = m.get("lat_band", [])
+        if card_lat_band and current_lat_band not in card_lat_band:
+            continue
+
+        filtered.append(text)
+
+    return filtered if filtered else pool  # fallback to unfiltered if all removed
+
+
 def _matches(requires: dict, ctx: dict) -> bool:
     """Check if a scene's constraints are satisfied by the current context.
 
@@ -1032,7 +1109,7 @@ _RADIO_QUIET_VARIANTS: list[str] = [
     "电台还在,声音小了。",
     "远处有音乐,听不清是什么。",
     "收音机的声音被风盖住了。",
-    "电台的信号弱了,像有人在很远的地方说话。",
+    "电台的信号弱了,像有人在远处说话。",
     "电台的声音飘过来,忽有忽无。",
     "收音机还在响,但声音远了。",
     "电台的频率飘了,只剩下沙沙声。",
@@ -1193,6 +1270,8 @@ def render(
     elevation: float = 0,
     recent_scenes: list[str] | None = None,
     recent_touch: set[str] | None = None,
+    season: str = "",
+    lat: float = 0.0,
 ) -> str:
     """渲染一种感官。优先用场景文件,兜底用模板。kind 见 _HANDLERS。"""
     # Try scene files for terrain/weather/water
@@ -1202,7 +1281,7 @@ def render(
     else:
         scene_payload = {"biome": biome, "elevation": elevation}
     scene = _scene_for_kind(kind, scene_payload, rng,
-                            lat=scene_payload.get("lat", 0.0),
+                            lat=scene_payload.get("lat", lat),
                             lon=scene_payload.get("lon", 0.0),
                             recent_scenes=recent_scenes)
     if scene:
@@ -1214,6 +1293,10 @@ def render(
     # Set biome context for handlers that need it (e.g. water_features)
     global _CURRENT_BIOME
     _CURRENT_BIOME = biome or ""
+    # Card 33: set season/lat context for structured filtering
+    global _CURRENT_SEASON, _CURRENT_LAT
+    _CURRENT_SEASON = season or ""
+    _CURRENT_LAT = lat or 0.0
     # Pass recent_touch to terrain handler via module-level variable
     global _RECENT_TOUCH
     _RECENT_TOUCH = recent_touch or set()
@@ -1367,34 +1450,88 @@ _TRANSITION_SLOTS_ESTABLISH: dict[str, list[str]] = {
     "juxtapose": ["同时,", "这会儿,"],
 }
 
+# ── Card 39b: narrative role connector pools ───────────────────────
+# 开场/余韵槽为空集——胶水的消失不靠禁,靠结构让胶水无处生根。
+_NARRATIVE_ROLES = ("开场", "深入", "转折", "余韵")
+
+_ROLE_CONNECTOR_SLOTS: dict[str, dict[str, list[str]]] = {
+    "开场": {},  # no connectors — hard cut
+    "深入": {
+        "juxtapose": ["同时,", "这会儿,", "另一边,"],
+        "time": ["紧接着,", "没过多会儿,", "走着走着,"],
+    },
+    "转折": {
+        "contrast": ["可是,", "不过,", "但是,"],
+    },
+    "余韵": {},  # no connectors — short independent sentences
+}
+
+
+def _assign_narrative_roles(n: int, rng: random.Random) -> list[str]:
+    """Assign a narrative role to each of *n* sections.
+
+    Rules:
+      - First section is always 开场 (hard cut, no connectors).
+      - Last section: 50% chance 余韵 (short independent sentences).
+      - Turning points (转折) placed at ~1/3 and ~2/3 of the sequence.
+      - Remaining middle sections: 深入 (deepening).
+
+    Returns a list of role names, one per section.
+    """
+    roles: list[str] = ["开场"] + ["深入"] * (n - 1)
+
+    if n >= 3:
+        # Last section: 50% chance of 余韵
+        if rng.random() < 0.5:
+            roles[n - 1] = "余韵"
+
+        # Turning points at 1/3 and 2/3 of the sequence
+        t1 = max(1, n // 3)
+        t2 = max(t1 + 1, 2 * n // 3)
+
+        if t1 < n:
+            roles[t1] = "转折"
+        if t2 < n:
+            roles[t2] = "转折"
+
+    return roles
+
 # ── Card 39: wind sensory pools (≥4 per tier, clause-level, no punctuation) ──
 _WIND_CALM: list[str] = [
     "没有风", "一丝风都没有", "空气纹丝不动", "旗子垂着不动",
+    "树叶子不动", "烟直直地往上飘", "衣服挂在身上一动不动", "空气凝住了",
 ]
 _WIND_LIGHT: list[str] = [
     "风轻", "微风拂面", "风只够吹动头发", "衣角轻轻动了一下",
+    "风擦着脸过去", "草尖晃了一下", "树叶翻了个面又翻回来", "风软的,推不动衣袖",
 ]
 _WIND_MODERATE: list[str] = [
     "风不小", "衣角被吹起来", "风吹着衣摆", "风把帽子往前推了一下",
+    "树枝在晃", "头发糊了一脸", "沙粒打在小腿上", "风从领口灌进来",
 ]
 _WIND_STRONG: list[str] = [
     "风猛", "风压着人走", "站不太稳", "风呼呼地响",
+    "风把你往前推着走", "睁不开眼", "耳朵里全是风声", "衣服鼓成一面帆",
 ]
 
 # ── Card 39: humidity sensory pools (≥4 per tier, clause-level, trailing comma) ──
 _HUMIDITY_DRY: list[str] = [
     "嘴唇有点干,", "空气干得发紧,", "鼻腔里干的,", "皮肤上像有沙子在磨,",
+    "嗓子眼冒烟,", "手指上的倒刺又翘起来了,", "嘴唇裂了一道口子,", "静电啪地打了一下手指,",
 ]
 _HUMIDITY_HUMID: list[str] = [
     "空气黏在皮肤上,", "汗从毛孔里往外渗,", "空气重得能拧出水,", "呼吸像在吸棉花,",
+    "衣服贴在背上揭不下来,", "眼镜片起了一层雾,", "手心攥着一把汗,", "后脖颈子湿了一片,",
 ]
 
 # ── Card 39: wind delta sensory (for weather transitions) ───────────
 _WIND_DELTA_UP: list[str] = [
     "风突然大了起来", "风劲了", "风猛了",
+    "风一下子灌进领口", "刚才还安静,风说来就来", "树冠猛地一偏,风到了", "头发被风揪起来", "风把衣角掀到脸上",
 ]
 _WIND_DELTA_DOWN: list[str] = [
     "风小了", "风弱了", "风停了些",
+    "树梢不再摇", "衣服贴回身上", "风退了,空气又闷起来", "头发落回肩膀", "旗杆上的旗垂下来了",
 ]
 
 
@@ -1405,16 +1542,20 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
     - 连接词概率化: 40% 概率插入,60% 句号硬切; 同段不用同语义槽
     - 段拍变奏: 密段(20%)三景压一段 / 疏段(20%)一句独立成段 / 常(60%)
     - 语义槽分组: 时间/并置/因果, compose 内不复用同槽
+
+    Card 39b: narrative role layer (根治胶水词)
+    - 每段生成前先定角色: 开场/深入/转折/余韵
+    - 开场/余韵槽为空集——胶水的消失不靠禁,靠结构让胶水无处生根
+    - 角色按本步salience排序和段序分配: 首段必开场,末段50%余韵
     """
     sections = [s for s in sections if s and s.strip()]
     if not sections:
         return ""
 
-    # Select semantic slot pools by section type
-    if section_type == "walk":
-        slots = _TRANSITION_SLOTS_WALK
-    else:
-        slots = _TRANSITION_SLOTS_ESTABLISH
+    n = len(sections)
+
+    # Card 39b: assign narrative roles per section
+    roles = _assign_narrative_roles(n, rng)
 
     parts: list[str] = []
     used_slots: set[str] = set()
@@ -1425,15 +1566,20 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
         # Insert missing period at section boundary
         if parts and _ends_with_cjk(parts[-1]) and _starts_with_cjk(s):
             parts[-1] += "。"
-        # Card 39: 40% chance to insert a transition; 60% = hard cut (句号硬切)
+
+        role = roles[i]
+        slot_pools = _ROLE_CONNECTOR_SLOTS[role]
+
         t = ""
-        if rng.random() < 0.4:
-            # Pick from an unused semantic slot
-            available = [slot for slot in slots if slot not in used_slots]
-            if available:
-                slot = rng.choice(available)
-                t = rng.choice(slots[slot])
-                used_slots.add(slot)
+        if slot_pools:
+            # Per-role insertion probability
+            prob = {"深入": 0.4, "转折": 0.6}.get(role, 0.15)
+            if rng.random() < prob:
+                available = [s for s in slot_pools if s not in used_slots]
+                if available:
+                    slot = rng.choice(available)
+                    t = rng.choice(slot_pools[slot])
+                    used_slots.add(slot)
         parts.append(t + s)
 
     # Card 39: paragraph rhythm variation (密/疏/常)
@@ -1629,7 +1775,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
     # Append touch description (filter out recently used)
     touch_pool = _TOUCH_BY_SURFACE.get(surface_key, [])
     if touch_pool:
-        recent = _RECENT_TOUCH
+        recent = _RECENT_TOUCH | set(_RECENT_SCENES[-10:])
         if recent:
             fresh = [t for t in touch_pool if t not in recent]
             if fresh:
@@ -1640,7 +1786,7 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
     # Append smell description (filter out recently used)
     smell_pool = _SMELL_BY_BIOME.get(biome, _SMELL_BY_BIOME.get(surface_key, []))
     if smell_pool:
-        recent = _RECENT_TOUCH
+        recent = _RECENT_TOUCH | set(_RECENT_SCENES[-10:])
         if recent:
             fresh = [s for s in smell_pool if s not in recent]
             if fresh:
@@ -1729,12 +1875,13 @@ def _render_sky(payload: dict, prev: dict | None, rng: random.Random) -> str:
 
 def _render_water(payload: dict, prev: dict | None, rng: random.Random) -> str:
     sst = round(payload.get("sea_surface_temp", payload.get("sst", 20)))
+    recent = set(_RECENT_SCENES[-10:]) if _RECENT_SCENES else set()
     if sst < 10:
-        tmpl = _pick(_WATER_COLD_VARIANTS, rng)
+        tmpl = _pick_fresh(_WATER_COLD_VARIANTS, rng, recent)
     elif sst < 22:
-        tmpl = _pick(_WATER_COOL_VARIANTS, rng)
+        tmpl = _pick_fresh(_WATER_COOL_VARIANTS, rng, recent)
     else:
-        tmpl = _pick(_WATER_WARM_VARIANTS, rng)
+        tmpl = _pick_fresh(_WATER_WARM_VARIANTS, rng, recent)
     return tmpl.format(sst=sst)
 
 
@@ -2480,6 +2627,8 @@ def render_establish(payload: dict, rng: random.Random) -> str:
 
 # ── module-level biome context for handlers that need it ─────────────
 _CURRENT_BIOME: str = ""
+_CURRENT_SEASON: str = ""
+_CURRENT_LAT: float = 0.0
 _RECENT_TOUCH: set[str] = set()
 _RECENT_SCENES: list[str] = []
 
@@ -2494,8 +2643,8 @@ def _render_humanities(payload: dict, prev: dict | None, rng: random.Random) -> 
 def _render_water_features(payload: dict, prev: dict | None, rng: random.Random) -> str:
     """水文描写: 河流/湖泊/瀑布/溪流。
 
-    Card 33: reads biome-specific product file (scene_water_{biome}.txt).
-    Build time already filtered — runtime zero filtering.
+    Card 33: reads biome-specific product file (scene_water_{biome}.txt),
+    then filters by structured card metadata (seasons, lat_band).
     """
     biome = _CURRENT_BIOME
     features = payload if isinstance(payload, list) else []
@@ -2525,6 +2674,10 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
         pool = _load_scenes(f"water_{biome}")
     else:
         pool = _load_scenes("water_features")  # fallback to legacy
+
+    # Card 33: structured field filtering (replaces keyword blacklist)
+    if pool and _CURRENT_SEASON:
+        pool = filter_by_card_meta(pool, _CURRENT_SEASON, _CURRENT_LAT, biome)
 
     ctx = {"features": feat_set}
     if pool:

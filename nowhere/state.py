@@ -81,7 +81,7 @@ class WorldState:
         # ── Card 18: drift cards ───────────────────────────────────────
         self.drift_seen: list[str] = []  # seen drift card texts this journey
         # ── Card 20: odometer ──────────────────────────────────────────
-        # (total_distance_km lives in placememory, global across journeys)
+        self.total_distance_km: float = 0.0  # per-journey distance walked
         # ── Card 50: body state (能动·会变·不可逆·阻力) ───────────────
         self.whim: str | None = None  # active small desire (max 1 per journey)
         self.whim_steps_since: int = 999  # steps since last whim (999 = allow new)
@@ -147,6 +147,8 @@ class WorldState:
             "blind_clues": self.blind_clues,
             "door_key": self.door_key,
             "drift_seen": self.drift_seen,
+            # Card 20: per-journey odometer
+            "total_distance_km": self.total_distance_km,
             # Card 50: body state
             "whim": self.whim,
             "whim_steps_since": self.whim_steps_since,
@@ -215,6 +217,8 @@ class WorldState:
         s.blind_clues = data.get("blind_clues", 0)
         s.door_key = data.get("door_key")
         s.drift_seen = data.get("drift_seen", [])
+        # Card 20: per-journey odometer
+        s.total_distance_km = data.get("total_distance_km", 0.0)
         # Card 50: body state
         s.whim = data.get("whim")
         s.whim_steps_since = data.get("whim_steps_since", 999)

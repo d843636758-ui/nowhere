@@ -103,6 +103,24 @@ def water_ahead_km(lat: float, lon: float, bearing_deg: float, max_km: float = 2
     return None
 
 
+def water_body_ahead_km(
+    lat: float, lon: float, bearing_deg: float, max_km: float = 20.0
+) -> tuple[float | None, str]:
+    """沿方位往前走,多少公里内能碰到任何水体(海洋或淡水)。
+
+    返回 ``(距离_km, surface_type)`` 或 ``(None, "")``。
+    surface_type 为 ``"water_ocean"`` 或 ``"water_fresh"``。
+    """
+    d = 1.0
+    while d <= max_km:
+        lat2, lon2 = terrain.destination(lat, lon, bearing_deg, d)
+        surf = terrain.surface(lat2, lon2)
+        if surf in ("water_ocean", "water_fresh"):
+            return d, surf
+        d += 1.0
+    return None, ""
+
+
 def nearest_ocean_km_and_bearing(
     lat: float, lon: float, max_km: float = 50.0
 ) -> tuple[float | None, float | None]:
@@ -199,6 +217,8 @@ def step(
         # Check distance to water
         water_dist = water_ahead_km(lat, lon, bearing, max_km=10.0)
         if water_dist is not None and water_dist >= 5.0:
+            # Blocked but distance still accumulates (you walked there)
+            state.total_distance_km += dist_km
             return {
                 "blocked": True,
                 "reason": "water",
@@ -217,6 +237,8 @@ def step(
     )
 
     if slope_deg > _CLIFF_THRESHOLD_DEG:
+        # Blocked but distance still accumulates (you walked there, just couldn't pass)
+        state.total_distance_km += dist_km
         result = {
             "blocked": True,
             "reason": "cliff",

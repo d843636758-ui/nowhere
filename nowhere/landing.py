@@ -9,8 +9,10 @@ import random
 
 _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 _POOL_PATH = _DATA_DIR / "pool.json"
+_PATCH_PATH = _DATA_DIR / "places_patch.json"
 
 _pool: list[dict] | None = None
+_patch_jitter: dict[str, float] | None = None
 
 # Destinations where water landing is intentional (not a bug).
 _WATER_DESTINATIONS: frozenset[str] = frozenset({
@@ -36,6 +38,25 @@ def _load_pool() -> list[dict]:
         with open(_POOL_PATH, encoding="utf-8") as f:
             _pool = json.load(f)
     return _pool
+
+
+def _load_patch_jitter() -> dict[str, float]:
+    """Load places_patch.json entries that have a jitter_deg field.
+
+    Returns {place_name: jitter_deg} for regional features.
+    """
+    global _patch_jitter
+    if _patch_jitter is None:
+        _patch_jitter = {}
+        if _PATCH_PATH.exists():
+            try:
+                data = json.loads(_PATCH_PATH.read_text(encoding="utf-8"))
+                for name, info in data.items():
+                    if isinstance(info, dict) and "jitter_deg" in info:
+                        _patch_jitter[name] = float(info["jitter_deg"])
+            except (json.JSONDecodeError, OSError):
+                pass
+    return _patch_jitter
 
 
 def _is_water_destination(name_hint: str) -> bool:

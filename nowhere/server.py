@@ -382,7 +382,8 @@ def _get_climate_zone(lat: float) -> str:
     return "热带" if abs_lat < 23.5 else "寒带"
 
 
-def _check_phenology(dt: datetime, lat: float, rng: random.Random) -> str | None:
+def _check_phenology(dt: datetime, lat: float, rng: random.Random,
+                     biome: str | None = None) -> str | None:
     """Check phenology events for current month/latitude. Returns text or None.
 
     Climate zone filtering: determines zone from latitude, maps to data band,
@@ -390,6 +391,10 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random) -> str | None
 
     South hemisphere month flipping: southern latitudes use north-hemisphere
     data with month offset +6 (month 1 in south = month 7 in north).
+    Each event is {"text": "...", "climate_zone": "..."}; filtered by zone.
+
+    Biome filtering (Card 58): desert/tundra biomes exclude water-heavy
+    phenology sentences (rainforest, wetland, coast content).
     """
     data = _load_phenology()
     events = data.get("events", {})
@@ -410,7 +415,30 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random) -> str | None
     month_events = band_events.get(month_str, [])
     if not month_events:
         return None
-    return rng.choice(month_events)
+
+    # Each entry is {"text": "...", "climate_zone": "..."}; filter by zone
+    candidates = [
+        e["text"] for e in month_events
+        if isinstance(e, dict) and e.get("climate_zone") == zone
+    ]
+    if not candidates:
+        # Fallback: accept any dict entry (zone mismatch shouldn't happen)
+        candidates = [
+            e["text"] for e in month_events if isinstance(e, dict)
+        ]
+
+    # Card 58: biome filtering — desert/tundra excludes water-heavy content
+    if biome in ("desert", "tundra"):
+        _WATER_KEYWORDS = ["雨季", "河水", "岸边的树", "瀑布", "水位", "涨水"]
+        _TROPICAL_KEYWORDS = ["芭蕉", "椰子", "棕榈", "热带雨林"]
+        filtered = [t for t in candidates
+                    if not any(k in t for k in _WATER_KEYWORDS + _TROPICAL_KEYWORDS)]
+        if filtered:
+            candidates = filtered
+
+    if not candidates:
+        return None
+    return rng.choice(candidates)
 
 
 def _check_anniversary(lat: float, lon: float, dt: datetime,
@@ -690,7 +718,7 @@ def _compute_timeaxes(dt: datetime, lat: float, lon: float,
             })
 
     # 4. Phenology (物候) — includes biological clock
-    pheno_text = _check_phenology(dt, lat, rng)
+    pheno_text = _check_phenology(dt, lat, rng, biome=biome)
     if pheno_text:
         layers.append({
             "priority": _TP_PHENOLOGY, "kind": "phenology",
@@ -1488,10 +1516,11 @@ _BIOME_TO_DISCOVERY_TAGS: dict[str, set[str]] = {
 
 
 def _pick_discovery(rng: random.Random) -> str:
-    """Pick a random discovery scene line, filtered by biome tags and altitude.
+    """Pick a random discovery scene line, filtered by structured card metadata.
 
-    Uses biome tags from scene_walk_discovery.txt for filtering.
-    Falls back to surface-to-biome mapping if biome is not set.
+    Card 33: replaces keyword blacklists with QBN-style structured conditions.
+    Each card declares seasons[], lat_band[], biomes[]; runtime compares against
+    current context. Zero keyword matching.
     """
     pool = _load_discovery_scenes()
     if not pool:
@@ -1499,7 +1528,6 @@ def _pick_discovery(rng: random.Random) -> str:
 
     biome = _state.biome or ""
     surface = _last_env_surface()
-    elev = (_state.last_env or {}).get("elevation", 0)
 
     # Determine target biome from biome or surface mapping
     target_biome = biome
@@ -1521,21 +1549,12 @@ def _pick_discovery(rng: random.Random) -> str:
                 else:
                     pool = [s for s, _ in untagged]
 
-    # Keyword-based fallback filtering for edge cases
-    water_keywords = ["瀑布", "溪", "河", "湖", "海", "水帘", "湿地", "溪水"]
-    if biome in ("desert",) or surface in ("sand", "bare"):
-        pool = [s for s in pool if not any(k in s for k in water_keywords)]
-
-    ice_keywords = ["冰", "雪", "冻", "霜", "冰湖", "冰面"]
-    if biome in ("desert", "rainforest") or surface in ("sand", "bare"):
-        pool = [s for s in pool if not any(k in s for k in ice_keywords)]
-
-    if biome not in ("coast", "island"):
-        pool = [s for s in pool if "海边" not in s and "灯塔" not in s]
-
-    if elev > 3000:
-        high_altitude_bad = ["公园", "湖面", "鸭子", "水泥地", "人行道", "路灯", "便利店", "地铁", "小区"]
-        pool = [s for s in pool if not any(k in s for k in high_altitude_bad)]
+    # Card 33: structured field filtering (replaces keyword blacklist)
+    now = _state.now()
+    if now:
+        lat = _state.pos[0] if _state.pos else 0
+        current_season = describe._season(now.month, lat)
+        pool = describe.filter_by_card_meta(pool, current_season, lat, biome)
 
     if not pool:
         return ""
@@ -1568,12 +1587,70 @@ _BODY_STATE_LINES: list[str] = [
     "你擦了一下额头上的汗。",
 ]
 
+# ── Card 51: wide coast scan for far-inland rejection ──────────────
+def _wide_coast_scan(lat: float, lon: float) -> tuple[float | None, float | None]:
+    """Scan 8 directions up to 5000km for ocean (coarser: 50km steps).
+
+    Returns (min_km, bearing_deg) or (None, None).
+    Used only for rejection text — precision not critical.
+    """
+    min_km: float | None = None
+    min_bearing: float | None = None
+    for i in range(8):
+        bearing = i * 45.0
+        d = 50.0
+        while d <= 5000.0:
+            from nowhere import terrain as _t
+            lat2, lon2 = _t.destination(lat, lon, bearing, d)
+            if _t.surface(lat2, lon2) == "water_ocean":
+                if min_km is None or d < min_km:
+                    min_km = d
+                    min_bearing = bearing
+                break
+            d += 50.0
+    return min_km, min_bearing
+
+
 # ── Card 51: toward_sea rejection variants (nearest coast > 50 km) ──
 _SEA_REJECT_VARIANTS: list[str] = [
     "这里看不见海。最近的海在{dist}公里外。",
     "往那个方向走，全是陆地。海在{dir}，远着呢。",
     "你朝着海的方向走了几步，地势一点没变。海不在这边。",
 ]
+
+# Card 51 polish: vague text for far-inland (>=500km from coast)
+_FAR_COAST_VARIANTS: list[str] = [
+    "海在{dir}。远着呢，上千公里。",
+    "往{dir}走，全是陆地。海不在这边，隔着上千公里的地。",
+    "你朝着海的方向走了几步。海在{dir}，但太远了，上千公里。",
+]
+
+
+def _resolve_water_body_label(dest_surface: str, lat: float, lon: float) -> str:
+    """Determine direction label for toward_sea based on actual water body type.
+
+    Returns 海边/江边/河边/湖边/水边 depending on the surface and nearby
+    hydrology features.
+    """
+    if dest_surface == "water_ocean":
+        return "海边"
+    if dest_surface != "water_fresh":
+        return "水边"
+    # Freshwater: check nearby features for more specific label
+    try:
+        features = _offline_water_nearby(lat, lon, radius_km=5)
+        if features:
+            fname = features[0].get("name", "")
+            ftype = features[0].get("type", "")
+            if "江" in fname:
+                return "江边"
+            if "湖" in fname or ftype == "lake":
+                return "湖边"
+            if "河" in fname or ftype == "river":
+                return "河边"
+    except Exception:
+        pass
+    return "河边"
 
 
 def _bearing_to_label(
@@ -2206,6 +2283,22 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
                 lat, lon = seg["lat"], seg["lon"]
                 place_name = seg["segment_name"]
 
+    # ── 1b. Regional jitter: places_patch entries with jitter_deg ─────
+    if not restored and to and lat is not None and lon is not None:
+        _patch = landing._load_patch_jitter()
+        _norm_to = (to or "").strip()
+        if _norm_to in _patch:
+            _jitter = _patch[_norm_to]
+            lat = lat + _rng.uniform(-_jitter, _jitter)
+            lon = lon + _rng.uniform(-_jitter, _jitter)
+        else:
+            # Try case-insensitive match
+            for _pk, _pv in _patch.items():
+                if _pk.lower() == _norm_to.lower():
+                    lat = lat + _rng.uniform(-_pv, _pv)
+                    lon = lon + _rng.uniform(-_pv, _pv)
+                    break
+
     # ── 2. State init ────────────────────────────────────────────────
     if not restored and resume:
         _state = state_mod.WorldState()
@@ -2289,9 +2382,11 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
 
     # Build water feature description from offline data
     if water_features:
+        _wf_season = describe._season(_now.month, lat) if _now else ""
         water_text = describe.render(
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
+            season=_wf_season, lat=lat,
         )
         # ── Card 43: water notebook hook (open_door) ────────────────
         try:
@@ -2398,7 +2493,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
                         and _state.biome == "city")
     local_card = localcolor.draw(place_name, _state.seen_cards, _rng,
                                  local_hour=local_hour, country_code=cc, intent=_state.intent,
-                                 lat=lat, lon=lon)
+                                 lat=lat, lon=lon, walk_step=_state.walk_step_counter)
     if local_card:
         # Card 50: suppress food cards at late night in city
         _is_food = local_card.get("category") == "美食" or "/美食/" in local_card.get("key", "")
@@ -3039,13 +3134,20 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     if semantic == "toward_sea":
         lat0, lon0 = _state.pos
         sea_km, sea_bearing = walk_mod.nearest_ocean_km_and_bearing(lat0, lon0)
+        # Wide scan: if 50km scan found nothing, try up to 5000km (coarser)
+        if sea_km is None:
+            sea_km, sea_bearing = _wide_coast_scan(lat0, lon0)
         if sea_km is None or sea_km > 50:
             from nowhere.places import _bearing_word as _bw
-            dist_str = f"{round(sea_km)}" if sea_km is not None else "几百"
             dir_str = _bw(sea_bearing) if sea_bearing is not None else "很远"
-            reject_text = _rng.choice(_SEA_REJECT_VARIANTS).format(
-                dist=dist_str, dir=dir_str,
-            )
+            if sea_km is not None and sea_km >= 500:
+                # Vague text for large distances (Card 51 polish)
+                reject_text = _rng.choice(_FAR_COAST_VARIANTS).format(dir=dir_str)
+            else:
+                dist_str = f"{round(sea_km)}" if sea_km is not None else "很远"
+                reject_text = _rng.choice(_SEA_REJECT_VARIANTS).format(
+                    dist=dist_str, dir=dir_str,
+                )
             return {
                 "text": reject_text,
                 "data": {
@@ -3063,12 +3165,11 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # ── Card 51: annotate step_result with water body label ──────────
     if semantic == "toward_sea" and not step_result.get("blocked"):
-        _WATER_BODY_LABELS = {
-            "water_ocean": "海边",
-            "water_fresh": "河边",
-        }
         dest_surface = step_result.get("new_surface", "")
-        step_result["water_body_label"] = _WATER_BODY_LABELS.get(dest_surface, "水边")
+        _lat_now, _lon_now = _state.pos
+        step_result["water_body_label"] = _resolve_water_body_label(
+            dest_surface, _lat_now, _lon_now,
+        )
 
     # ── 2. Blocked → render blocked only ─────────────────────────────
     if step_result.get("blocked"):
@@ -3185,9 +3286,12 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # Build water feature description from offline data
     if water_features:
+        _wf_lat = _state.pos[0] if _state.pos else 0
+        _wf_season = describe._season(_now.month, _wf_lat) if _now else ""
         water_text = describe.render(
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
+            season=_wf_season, lat=_wf_lat,
         )
         # ── Card 43: water notebook hook ────────────────────────────
         try:
@@ -3452,9 +3556,10 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     _state.save()
 
-    # Card 20: Accumulate distance in global odometer
+    # Card 20: Accumulate distance in per-journey state + global odometer
     _walk_dist = step_result.get("dist_km", 2.0)
     if _walk_dist > 0:
+        _state.total_distance_km += _walk_dist
         placememory.add_distance_km(_walk_dist)
 
     # ── 8. Return ────────────────────────────────────────────────────
@@ -3700,7 +3805,7 @@ async def look_around_impl() -> dict:
 
     card = localcolor.draw(place, _state.seen_cards, _rng,
                            local_hour=local_hour, country_code=cc, intent=_state.intent,
-                           lat=lat, lon=lon)
+                           lat=lat, lon=lon, walk_step=_state.walk_step_counter)
     if card:
         _state.seen_cards.add(card["key"])
         placememory.save_seen_cards(place, _state.seen_cards)
@@ -3719,6 +3824,17 @@ async def look_around_impl() -> dict:
         text = _pick_fresh(tastes[place], _rng)
         if text:
             sections.append(text)
+
+    # ── 4b. Biome-specific discovery (scene_discovery_{biome}.txt) ──
+    # Ensures look_around always has biome content even when no
+    # local color / soundscape / taste data exists for the place.
+    biome = _state.biome or ""
+    if biome:
+        disc_pool = describe._load_scenes(f"discovery_{biome}")
+        if disc_pool:
+            biome_disc = _pick_fresh(disc_pool, _rng)
+            if biome_disc:
+                sections.append(biome_disc)
 
     # ── 5. Life encounter - 50% chance ──────────────────────────────
     if _rng.random() < 0.5:
@@ -4221,8 +4337,8 @@ def where_am_i_impl() -> dict:
     if errand_hint:
         parts.append(errand_hint)
 
-    # Card 20: Odometer
-    total_km = placememory.get_total_distance_km()
+    # Card 20: Odometer (per-journey)
+    total_km = _state.total_distance_km
     if total_km >= 1.0:
         parts.append(f"这趟出门,你已经走了 {total_km:.0f} 公里。")
     elif total_km > 0:
@@ -4243,6 +4359,415 @@ def where_am_i_impl() -> dict:
     }
 
 
+# ── Card 57: coastal elevation clamping ──────────────────────────────
+
+
+def _clamp_coastal_elevation(elev: float, surface: str, lat: float, lon: float) -> float:
+    """Coarse-grid (1°) coastline cells produce garbage elevations.
+
+    Root cause: grid_tiny merges land and ocean in the same 1° cell;
+    the averaged elevation can be wildly off — e.g. Weihai reports 300 m
+    while sitting at sea level.  Same disease as card 26.
+
+    Diagnostic signal: if all 8 grid neighbours share the exact same
+    elevation, the grid has no real terrain data for this cell — it is
+    a coarse default (typically 200-300 m).  Real terrain (even flat
+    plains) always shows some variation at 1° resolution.
+
+    Strategy:
+    1. Water surface → always near sea level (0-5 m).
+    2. High-res tile available → trustworthy, skip.
+    3. Flat neighbours on coarse grid → elevation is a grid artifact.
+       Look up the nearest large city in cities15000: if within 30 km,
+       use its population as a proxy for "this is a significant place
+       where the coarse grid is misleading".  Clamp to 0-50 m.
+    4. Otherwise → leave untouched (preserves Denver, Lhasa, etc.).
+
+    Trade-off: this also clamps some inland cities (Moscow ~156 m → 50 m)
+    when the grid provides no real terrain data.  Proper fix is high-res
+    SRTM tiles for all major cities (card 26).
+    """
+    # Water: always sea level
+    if surface in ("water_ocean", "water_fresh", "wetland"):
+        return max(0.0, min(elev, 5.0))
+
+    # High-res tile available → data is trustworthy, skip clamping
+    if terrain._find_tile(lat, lon) is not None:
+        return elev
+
+    # Check if all 8 grid neighbours have the same elevation —
+    # this indicates the 1° grid has no real terrain data.
+    step = 1.0
+    neighbour_elevs: set[float] = set()
+    for dlat in (-step, 0, step):
+        for dlon in (-step, 0, step):
+            if dlat == 0 and dlon == 0:
+                continue
+            neighbour_elevs.add(terrain.elevation(lat + dlat, lon + dlon))
+    is_flat_grid = len(neighbour_elevs) == 1
+
+    if not is_flat_grid:
+        # Real terrain variation — elevation is meaningful
+        return elev
+
+    # Flat grid: elevation is a coarse default.  Check if a significant
+    # city is nearby (cities15000 pop > 100k within 30 km).
+    cos_lat = math.cos(math.radians(lat))
+    try:
+        with open(_PACK_PATH, encoding="utf-8") as f:
+            for line in f:
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) < 15:
+                    continue
+                try:
+                    clat = float(parts[4])
+                    clon = float(parts[5])
+                    pop = int(parts[14] or 0)
+                except ValueError:
+                    continue
+                if pop < 100_000:
+                    continue
+                dlat = clat - lat
+                dlon = clon - lon
+                if dlon > 180:
+                    dlon -= 360
+                elif dlon < -180:
+                    dlon += 360
+                dist_km = 111.0 * math.sqrt(dlat ** 2 + (dlon * cos_lat) ** 2)
+                if dist_km < 30:
+                    # Significant city on flat-grid cell → clamp
+                    return max(0.0, min(elev, 50.0))
+    except Exception:
+        pass
+
+    return elev
+
+
+# ── Card 57: localized stamp place names ─────────────────────────────
+
+_COUNTRY_TO_SCRIPT: dict[str, tuple[str, list[str]]] = {
+    "JP": ("han", ["jp"]),       "KR": ("hangul", []),         "TH": ("thai", []),
+    "RU": ("cyrillic", []),      "UA": ("cyrillic", ["uk"]),   "BY": ("cyrillic", []),
+    "EG": ("arabic", []),        "SA": ("arabic", []),         "AE": ("arabic", []),
+    "IL": ("hebrew", []),        "IN": ("devanagari", []),     "BD": ("bengali", []),
+    "GR": ("greek", []),         "GE": ("georgian", []),
+    # Multi-language countries: use first official language (latin)
+    "CH": ("latin", []),         "BE": ("latin", []),          "CA": ("latin", []),
+}
+
+_PACK_PATH = _pathlib.Path(__file__).resolve().parent / "data" / "packs" / "cities15000.txt"
+
+_local_name_cache: dict[str, str] = {}
+
+
+def _char_script(ch: str) -> str:
+    """Classify a character into broad script buckets."""
+    cp = ord(ch)
+    if 0x3040 <= cp <= 0x30FF or (0xFF65 <= cp <= 0xFF9F):
+        return "kana"
+    if 0xAC00 <= cp <= 0xD7AF or 0x1100 <= cp <= 0x11FF or 0x3130 <= cp <= 0x318F:
+        return "hangul"
+    if 0x0E00 <= cp <= 0x0E7F:
+        return "thai"
+    if 0x0900 <= cp <= 0x097F:
+        return "devanagari"
+    if 0x0980 <= cp <= 0x09FF:
+        return "bengali"
+    if 0x0600 <= cp <= 0x06FF or 0x0750 <= cp <= 0x077F or 0xFB50 <= cp <= 0xFEFF:
+        return "arabic"
+    if 0x0590 <= cp <= 0x05FF:
+        return "hebrew"
+    if 0x0400 <= cp <= 0x04FF:
+        return "cyrillic"
+    if 0x0370 <= cp <= 0x03FF:
+        return "greek"
+    if 0x10A0 <= cp <= 0x10FF or 0x2D00 <= cp <= 0x2D2F:
+        return "georgian"
+    if 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF:
+        return "han"
+    # Latin (including extended-A/B for accented chars like è, ə)
+    if (0x0041 <= cp <= 0x005A or 0x0061 <= cp <= 0x007A
+            or 0x00C0 <= cp <= 0x024F or 0x1E00 <= cp <= 0x1EFF):
+        return "latin"
+    return "other"
+
+
+def _has_cjk(text: str) -> bool:
+    return any(0x4E00 <= ord(c) <= 0x9FFF or 0x3400 <= ord(c) <= 0x4DBF for c in text)
+
+
+def _has_kana(text: str) -> bool:
+    return any(0x3040 <= ord(c) <= 0x30FF or 0xFF65 <= ord(c) <= 0xFF9F for c in text)
+
+
+def _pick_best_localized(
+    candidates: list[str],
+    script: str,
+    cc: str,
+    place_name: str,
+    target_info: tuple | None,
+    ascii_name: str = "",
+) -> str | None:
+    """Pick the best localized name from a list of same-script alternates.
+
+    GeoNames alternatenames are ordered roughly by importance.  We preserve
+    that order and apply targeted filters per script to skip abbreviations,
+    vowelized forms, and other non-standard variants, then return the first
+    surviving candidate.
+    """
+    if not candidates:
+        return None
+
+    def _acceptable(alt: str) -> bool:
+        n = len(alt)
+        # Minimum length: CJK/Hangul names can be 2 chars (東京, 서울)
+        min_len = 2 if script in ("han", "hangul", "kana") else 3
+        if n < min_len:
+            return False
+
+        if script == "latin":
+            # Skip all-uppercase abbreviations (GVA, CAI, SEL, BOM)
+            if alt.isupper() and n <= 4:
+                return False
+
+        if script == "hebrew":
+            # Skip vowelized forms (niqqud diacritics U+0591-U+05BD)
+            if any(0x0591 <= ord(c) <= 0x05BD for c in alt):
+                return False
+            # Skip very short ancient names (Jebus, Salem, Zion)
+            if n < 5:
+                return False
+            if n > 12:
+                return False
+
+        if script == "devanagari":
+            # Skip compound names with "Greater" prefix
+            if n > 10:
+                return False
+
+        if script == "cyrillic":
+            # Skip mixed-script transliterations (contain Latin chars)
+            if any(_char_script(c) == "latin" for c in alt):
+                return False
+
+        if script == "hangul":
+            # Skip long compound names (서울특별시, 한양 etc.)
+            if n > 6:
+                return False
+
+        return True
+
+    # First pass: apply filters
+    filtered = [a for a in candidates if _acceptable(a)]
+
+    # For Cyrillic with language preference (UA): among filtered, pick
+    # the one with language-specific chars
+    if script == "cyrillic" and target_info and len(target_info) > 1:
+        lang_chars = {"uk": set("їЇєЄґҐ"), "ru": set("ёЁъЪ")}
+        for lang in target_info[1]:
+            chars = lang_chars.get(lang, set())
+            for alt in filtered:
+                if chars & set(alt):
+                    return alt
+
+    # For han + JP: prefer traditional form (東京 over 东京)
+    if script == "han" and cc == "JP":
+        for alt in filtered:
+            if alt != place_name and _has_cjk(alt):
+                return alt
+
+    # For Latin: prefer accented endonyms (Genève > Genf > Geneva)
+    if script == "latin":
+        accented = [a for a in filtered if any(0x00C0 <= ord(c) <= 0x024F for c in a)]
+        if accented:
+            return accented[0]
+
+    # For Devanagari: prefer names matching ASCII first syllable
+    # (Mumbai → मुंबई over बम्बई; Delhi → दिल्ली)
+    if script == "devanagari" and filtered:
+        if ascii_name.lower().startswith("mu"):
+            mu_names = [a for a in filtered if a.startswith("मु")]
+            if mu_names:
+                return mu_names[0]
+
+    # For Hangul: prefer names matching ASCII first syllable
+    # (Seoul → 서울 over 경성; Busan → 부산)
+    if script == "hangul" and filtered:
+        # Prefer the2-char "clean" name (서울, 부산) over compounds
+        short = [a for a in filtered if len(a) == 2]
+        if short:
+            # Match first syllable: ASCII "Se" → "서", "Bu" → "부"
+            _HANGUL_INIT = {
+                "se": "서", "bu": "부", "in": "인", "da": "대", "gw": "광",
+                "je": "제", "ch": "천", "su": "수", "ul": "울", "gy": "경",
+            }
+            prefix = ascii_name.lower()[:2]
+            expected_init = _HANGUL_INIT.get(prefix)
+            if expected_init:
+                matching = [a for a in short if a.startswith(expected_init)]
+                if matching:
+                    return matching[0]
+            return short[0]
+
+    # For Cyrillic + RU: prefer "Мо-" prefix for "Mo-" cities
+    if script == "cyrillic" and filtered and cc == "RU":
+        if ascii_name.lower().startswith("mo"):
+            mo_names = [a for a in filtered if a.startswith("Мо")]
+            if mo_names:
+                return mo_names[0]
+
+    # Default: first surviving candidate (GeoNames order)
+    return filtered[0] if filtered else candidates[0]
+
+
+def _localized_place_name(place_name: str, lat: float, lon: float) -> str:
+    """Return the local-language name for a place on the postcard stamp.
+
+    cities15000.txt ``name`` column is always romanised (Tokyo, Moscow, Cairo).
+    The local-script name lives in ``alternatenames`` (col 3).
+
+    Logic:
+    1. Find the nearest city entry matching ``place_name``.
+    2. Determine target script from country code.
+    3. Pick the best alternename in that script.
+    4. Fallback chain: target-script alt → CJK alt → romanised name.
+
+    For China/HK/TW/JP: place_name itself is already CJK, pass through.
+    For all other countries: return local script (東京/Москва/القاهرة…).
+    Romanised fallback is normal for foreign postcards; Chinese stamp on
+    a Tokyo postcard is the real bug.
+    """
+    if not place_name or not _PACK_PATH.exists():
+        return place_name
+
+    key = f"{place_name}|{lat:.2f}|{lon:.2f}"
+    if key in _local_name_cache:
+        return _local_name_cache[key]
+
+    # CJK input in CJK-speaking region → already correct, pass through.
+    # JP needs lookup (simplified→traditional), handled below.
+    cc = country.country_code_of(lat, lon)
+    if cc in ("CN", "TW", "HK", "MO") and _has_cjk(place_name):
+        _local_name_cache[key] = place_name
+        return place_name
+
+    # Scan cities15000 for the matching city
+    q = place_name.strip().lower()
+    deg = 0.5  # ~55 km search radius
+    best_entry: dict | None = None
+    best_dist = float("inf")
+
+    with open(_PACK_PATH, encoding="utf-8") as f:
+        for line in f:
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 15:
+                continue
+            try:
+                clat, clon = float(parts[4]), float(parts[5])
+            except ValueError:
+                continue
+            dlat = clat - lat
+            dlon = clon - lon
+            if dlon > 180:
+                dlon -= 360
+            elif dlon < -180:
+                dlon += 360
+            if abs(dlat) > deg or abs(dlon) > deg:
+                continue
+            name_l = parts[1].lower()
+            asciiname_l = parts[2].lower()
+            alts = parts[3]
+            # Match: exact name, asciiname, or alternename (check all)
+            matched = (q == name_l or q == asciiname_l
+                       or any(q == a.strip().lower() for a in alts.split(",")))
+            # CJK fuzzy: simplified/traditional may differ (基辅 vs 基輔)
+            if not matched and _has_cjk(place_name):
+                q_chars = set(place_name)
+                for a in alts.split(","):
+                    a = a.strip()
+                    if _has_cjk(a):
+                        a_chars = set(a)
+                        overlap = len(q_chars & a_chars)
+                        if overlap >= max(1, len(q_chars) * 0.5):
+                            matched = True
+                            break
+            if not matched:
+                continue
+            dist = dlat * dlat + dlon * dlon
+            if dist < best_dist:
+                best_dist = dist
+                best_entry = {
+                    "name": parts[1],
+                    "asciiname": parts[2],
+                    "alternatenames": parts[3],
+                    "cc": parts[8],
+                    "admin1": parts[10] if len(parts) > 10 else "",
+                }
+
+    if best_entry is None:
+        # No city found: if input is CJK, keep it; else return as-is
+        result = place_name
+        _local_name_cache[key] = result
+        return result
+
+    e_cc = best_entry["cc"]
+    alts_str = best_entry["alternatenames"]
+    alt_list = [a.strip() for a in alts_str.split(",") if a.strip()]
+    admin1 = best_entry.get("admin1", "")
+
+    # Classify alternates by script.
+    # An alt is assigned to a script only if ≥60% of non-space, non-punctuation
+    # characters belong to that script.  This filters out transliterations
+    # like "Məskəү" (1 Cyrillic char among 6 Latin).
+    script_groups: dict[str, list[str]] = {}
+    for alt in alt_list:
+        counts: dict[str, int] = {}
+        total_alpha = 0
+        for ch in alt:
+            if ch.isspace():
+                continue
+            s = _char_script(ch)
+            if s != "other":
+                counts[s] = counts.get(s, 0) + 1
+                total_alpha += 1
+        if not total_alpha:
+            continue
+        dominant = max(counts, key=lambda k: counts[k])
+        # Require ≥60% dominance (filters mixed-script transliterations)
+        if counts[dominant] / total_alpha >= 0.6:
+            script_groups.setdefault(dominant, []).append(alt)
+
+    # Determine what the input is
+    input_scripts: set[str] = set()
+    for ch in place_name:
+        s = _char_script(ch)
+        if s != "other":
+            input_scripts.add(s)
+
+    # Country → target script
+    target_info = _COUNTRY_TO_SCRIPT.get(e_cc)
+    target_script = target_info[0] if target_info else None
+
+    result: str | None = None
+
+    ascii_nm = best_entry.get("asciiname", "")
+
+    if target_script and target_script in script_groups:
+        candidates = script_groups[target_script]
+        result = _pick_best_localized(candidates, target_script, e_cc,
+                                      place_name, target_info, ascii_nm)
+    elif "latin" in script_groups:
+        result = _pick_best_localized(script_groups["latin"], "latin",
+                                      e_cc, place_name, target_info, ascii_nm)
+
+    if result is None:
+        # Foreign country, no script match: use romanised name
+        result = best_entry["asciiname"] or best_entry["name"]
+
+    _local_name_cache[key] = result
+    return result
+
+
 def _postmark(lat: float, lon: float) -> dict:
     """邮戳保留旅程内当地时间；现实寄出时间由明信片另行记录。"""
     # Use current env elevation if available (fresher than raw terrain lookup),
@@ -4251,8 +4776,17 @@ def _postmark(lat: float, lon: float) -> dict:
     elev = env.get("elevation")
     if elev is None:
         elev = terrain.elevation(lat, lon)
+    # Card 57: clamp coastal elevation (coarse-grid coastline bug)
+    surface = _last_env_surface() or "grass"
+    elev = _clamp_coastal_elevation(elev, surface, lat, lon)
+
+    # Card 57: localized place name for stamp
+    raw_place = _state.place_name or f"{lat:.2f}, {lon:.2f}"
+    stamp_place = _localized_place_name(raw_place, lat, lon)
+
     stamp: dict = {
-        "place": _state.place_name or f"{lat:.2f}, {lon:.2f}",
+        "place": stamp_place,
+        "place_zh": raw_place if stamp_place != raw_place else None,
         "lat": round(lat, 4),
         "lon": round(lon, 4),
         "elevation": round(elev),
@@ -4427,17 +4961,59 @@ def send_postcard_impl(text: str) -> dict:
 
     s = card["stamp"]
 
-    # ── 正面画面 ──────────────────────────────────────────────────────
+    # ── 正面画面: 旅程优先,地表兜底 ──────────────────────────────
     surface = _last_env_surface() or "grass"
     phase = (_state.last_env or {}).get("sky", {}).get("phase", "day")
     elev = s["elevation"]
     weather_text = s.get("weather", "")
     temp = s.get("temp_c", "")
 
-    # 地表 → 画面主语
+    # Card 57: 正面优先用旅程已见卡的环境句——明信片长在这次旅程上
+    import hashlib as _hashlib
+    journey_front: str | None = None
+
+    # 1) 从 localcolor 已见卡的 text 里挑一句环境描写
+    place = _state.place_name
+    if place:
+        _lc_cards = localcolor._load()
+        seen_texts = [
+            c.text for c in _lc_cards
+            if c.conditions.get("place") == place and c.id in _state.seen_cards
+            and c.meta.get("category") != "节律"
+        ]
+        if seen_texts:
+            idx = int(_hashlib.md5(f"postcard_{card['id']}".encode()).hexdigest()[:4], 16) % len(seen_texts)
+            candidate = seen_texts[idx]
+            # 取第一句(不超 60 字),太长截断
+            first_sent = candidate.split("。")[0].split("\n")[0].strip()
+            if len(first_sent) > 60:
+                first_sent = first_sent[:58] + "……"
+            if first_sent:
+                journey_front = first_sent + "。"
+
+    # 2) 没有已见卡 → 用当前环境实况拼一句画面
+    if journey_front is None:
+        env = _state.last_env or {}
+        env_parts: list[str] = []
+        if weather_text:
+            env_parts.append(weather_text)
+        if surface and surface not in ("urban",):
+            _SURFACE_WORD = {
+                "forest": "林子里", "rock": "岩壁下", "sand": "沙地上",
+                "grass": "草地上", "snow": "雪地里", "ice": "冰面上",
+                "bare": "碎石地上", "water_ocean": "海边", "water_fresh": "水边",
+                "wetland": "湿地里",
+            }
+            sw = _SURFACE_WORD.get(surface, "")
+            if sw:
+                env_parts.append(sw)
+        if env_parts:
+            journey_front = "、".join(env_parts) + "。"
+
+    # 3) 全兜底: 地表固定池(从未见过的新地方)
     surface_snapshots: dict[str, list[str]] = {
         "forest": ["树冠挨着树冠,绿的深浅分了好几层。阳光从叶子缝里漏下来,在地上碎成金点。","树一层一层地叠上去,深绿压着浅绿。林间有雾,薄薄的一层。","一棵老树横在画面里,树干上长满了蕨。"],
-        "urban": ["房子挤着房子,阳台上的衣服在风里晃。远处有楼的轮廓。","窄巷子,石板路反着光。一辆自行车靠在墙上。","窗台上摆着一盆花,不知道什么品种。叶子在风里动了一下。"],
+        "urban": ["房子挤着房子,阳台上的衣服在风里晃。远处有楼的轮廓。","窗台上摆着一盆花,不知道什么品种。叶子在风里动了一下。"],
         "rock": ["石头黑着脸,裂缝里长着苔。风把岩石磨出了棱角。","一整面岩壁,纹理像水流的化石。上面有几道鸟粪的白痕。","碎石坡,大的小的挤在一起。有一块被晒得发白。"],
         "sand": ["沙丘的脊线像刀切的。风吹过,沙面上起了一层细纹。","沙漠,沙丘一道一道,像凝固的浪。天边和沙是一个颜色。","近处是一丛骆驼刺,根扎得很深。远处的沙丘上没有人。"],
         "grass": ["草一直铺到天边,风吹过来的时候,草叶一层层地伏下去。这边的绿比别处浅。","及腰的草,风过的时候翻出银色的背面。远处有一棵孤树。","草海上起了浪——风推着草,一波一波地往前走。"],
@@ -4448,21 +5024,47 @@ def send_postcard_impl(text: str) -> dict:
         "water_fresh": ["水面平着,光在上面碎成一片。岸边有几丛芦苇。","湖水倒映着天,比天还蓝。"],
         "wetland": ["水草相间。一只鸟贴着水面飞,翅膀尖点了一下水,涟漪一圈圈散开。"],
     }
-    surface_choices = surface_snapshots.get(surface, surface_snapshots["bare"])
-    # 用明信片编号做种,同一张卡每次读到一样的面
-    import hashlib
-    surf_idx = int(hashlib.md5(f"postcard_{card['id']}".encode()).hexdigest()[:4], 16) % len(surface_choices)
-    front_image = surface_choices[surf_idx]
+    if journey_front is None:
+        surface_choices = surface_snapshots.get(surface, surface_snapshots["bare"])
+        surf_idx = int(_hashlib.md5(f"postcard_{card['id']}".encode()).hexdigest()[:4], 16) % len(surface_choices)
+        journey_front = surface_choices[surf_idx]
+    front_image = journey_front
 
     # ── 背面邮戳 ──────────────────────────────────────────────────────
     lat_dir = "北纬" if s["lat"] >= 0 else "南纬"
     lon_dir = "东经" if s["lon"] >= 0 else "西经"
-    stamp_describe = (
-        f"明信片正面: {front_image} "
-        f"翻过来,邮戳是圆的,印着——"
-        f"{s['place']}。{lat_dir}{abs(s['lat']):.1f}°,{lon_dir}{abs(s['lon']):.1f}°。"
-        f"海拔{elev}米。{s['local_time']}。"
+    # Card 57: RTL文字(阿拉伯/希伯来)单独一行,不与拉丁混排
+    _RTL_RANGES = (
+        (0x0590, 0x05FF),  # Hebrew
+        (0x0600, 0x06FF),  # Arabic
+        (0x0750, 0x077F),
+        (0xFB50, 0xFDFF),
+        (0xFE70, 0xFEFF),
     )
+    place_text = s['place']
+    is_rtl = any(
+        any(lo <= ord(ch) <= hi for lo, hi in _RTL_RANGES)
+        for ch in place_text
+    )
+    if is_rtl:
+        stamp_describe = (
+            f"明信片正面: {front_image} "
+            f"翻过来,邮戳是圆的,印着——"
+            f"\n{place_text}"
+            f"\n{lat_dir}{abs(s['lat']):.1f}°,{lon_dir}{abs(s['lon']):.1f}°。"
+            f"海拔{elev}米。{s['local_time']}。"
+        )
+    else:
+        stamp_describe = (
+            f"明信片正面: {front_image} "
+            f"翻过来,邮戳是圆的,印着——"
+            f"{place_text}。{lat_dir}{abs(s['lat']):.1f}°,{lon_dir}{abs(s['lon']):.1f}°。"
+            f"海拔{elev}米。{s['local_time']}。"
+        )
+    # Card 57: 中文名括注(背面小字)
+    zh_name = s.get("place_zh")
+    if zh_name and zh_name != place_text:
+        stamp_describe += f"({zh_name})"
 
     # ── Card 42: 邮差差事 — 寄完明信片 10% 拿到一封信 ────────────
     if (not _state.errand

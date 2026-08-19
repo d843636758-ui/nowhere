@@ -21,9 +21,36 @@ _DATA_DIR = pathlib.Path(__file__).resolve().parent / "data"
 
 _lc_cards: list[_cards.Card] | None = None
 
+# ── Card 54: thin-place speed limit ────────────────────────────────────
+_THIN_THRESHOLD: int = 5   # places with fewer effective cards are "thin"
+_THIN_COOLDOWN: int = 3    # minimum steps between thin-place draws
+_thin_last_draw: dict[str, int] = {}  # place_name -> walk_step of last draw
+
+
+def _place_card_count() -> dict[str, int]:
+    """Count effective (non-rhythm) cards per place."""
+    counts: dict[str, int] = {}
+    for c in _load():
+        if c.conditions.get("place") and c.meta.get("category") != "节律":
+            place = c.conditions["place"]
+            counts[place] = counts.get(place, 0) + 1
+    return counts
+
+
+def is_thin_place(place_name: str | None) -> bool:
+    """A place is thin if it has fewer than _THIN_THRESHOLD effective cards."""
+    if not place_name:
+        return False
+    return _place_card_count().get(place_name, 0) < _THIN_THRESHOLD
+
 
 def _load() -> list[_cards.Card]:
-    """Load localcolor cards via the unified Card layer."""
+    """Load localcolor cards via the unified Card layer.
+
+    Merges five regional files (china/japan_korea_sea/americas_africa_oceania/
+    europe_middleeast/natural) with the main localcolor.json.  Duplicate keys
+    prefer the main file; regional-only entries are merged in.
+    """
     global _lc_cards
     if _lc_cards is not None:
         return _lc_cards
@@ -59,6 +86,7 @@ def draw(
     intent: str | None = None,
     lat: float = 0.0,
     lon: float = 0.0,
+    walk_step: int = 0,
 ) -> dict | None:
     """抽一张没见过的卡 {"category", "text", "key"};抽完或无此地 → None。
 
@@ -67,6 +95,16 @@ def draw(
     """
     if not place_name:
         return None
+
+    # ── Card 54: thin-place speed limit ─────────────────────────────
+    # Thin places (<5 effective cards): enforce _THIN_COOLDOWN steps
+    # between draws, so the player doesn't exhaust a sparse place in
+    # consecutive steps.  The gap is filled with sky/terrain/body/water/
+    # phenology renderings in walk_impl.
+    if is_thin_place(place_name):
+        last = _thin_last_draw.get(place_name, -999)
+        if walk_step - last < _THIN_COOLDOWN:
+            return None
 
     # 候选池: (category, key, text, weight)
     pool: list[tuple[str, str, str, float]] = []
@@ -114,12 +152,18 @@ def draw(
     weights = [w if (meal_time or cat != "美食") else 1.0 for cat, _, _, w in pool]
     total = sum(weights)
     r = rng.uniform(0, total)
+    result: dict | None = None
     for (cat, key, text, _), w in zip(pool, weights):
         r -= w
         if r <= 0:
-            return {"category": cat, "text": text, "key": key}
-    cat, key, text, _ = pool[-1]
-    return {"category": cat, "text": text, "key": key}
+            result = {"category": cat, "text": text, "key": key}
+            break
+    if result is None:
+        cat, key, text, _ = pool[-1]
+        result = {"category": cat, "text": text, "key": key}
+    # ── Card 54: record draw step for thin-place cooldown ───────────
+    _thin_last_draw[place_name] = walk_step
+    return result
 
 
 def rhythm_event(

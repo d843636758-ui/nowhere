@@ -44,16 +44,30 @@ def _load_fallback() -> list[dict]:
         return []
 
 
-def _pick_nearest_from_fallback(lat: float, lon: float) -> dict | None:
+def _pick_nearest_from_fallback(lat: float, lon: float, country_code: str | None = None) -> dict | None:
     """Pick the fallback station closest to (lat, lon) by haversine distance.
 
+    Priority: same country > same culture circle > same continent > global.
     All fallback entries have ``lat``/``lon`` fields. If the nearest station
-    is within 3000 km, return it. Otherwise, use a region-aware fallback:
-    pick the closest representative station from the nearest region.
+    is within 3000 km, return it. Otherwise, use a region-aware fallback.
 
     Returns *None* only if no stations are available.
     """
     _MAX_NEARBY_KM: Final = 3000.0
+
+    # Culture circles: countries grouped by language/cultural proximity
+    # Fallback within a circle is preferred over nearest-geographic
+    _CULTURE_CIRCLES: dict[str, list[str]] = {
+        "arabic":    ["EG", "LY", "TN", "DZ", "MA", "SA", "AE", "JO", "IQ", "SY", "LB", "YE", "OM", "QA", "KW", "BH", "SD"],
+        "turkic":    ["TR", "KG"],
+        "persian":   ["IR"],
+        "south_asia":["IN", "PK", "BD"],
+        "east_asia": ["CN", "KR", "JP", "VN", "TH", "ID", "MY", "PH", "KH", "MM"],
+        "europe":    ["GB", "FR", "DE", "NO", "IS", "CZ", "IT", "UA"],
+        "americas":  ["US", "CA", "BR", "AR", "PE", "CO", "CL", "MX", "BO"],
+        "africa":    ["KE", "TZ", "ZA", "CM", "ET", "GH", "NG"],
+        "oceania":   ["AU", "NZ", "FJ"],
+    }
 
     # Regional representative stations (picked from fallback list by country)
     _REGION_REPS: dict[str, list[str]] = {
@@ -76,7 +90,38 @@ def _pick_nearest_from_fallback(lat: float, lon: float) -> dict | None:
         if cc:
             _by_cc.setdefault(cc, []).append(st)
 
-    # 1. Find globally nearest station
+    def _find_nearest(cc_list: list[str]) -> dict | None:
+        """Find nearest station from a list of country codes."""
+        best_st: dict | None = None
+        best_d = math.inf
+        for cc in cc_list:
+            for st in _by_cc.get(cc, []):
+                st_lat = st.get("lat")
+                st_lon = st.get("lon")
+                if st_lat is None or st_lon is None:
+                    continue
+                d = _haversine_km(lat, lon, st_lat, st_lon)
+                if d < best_d:
+                    best_d = d
+                    best_st = st
+        return best_st
+
+    # 1. Same country first
+    if country_code and country_code in _by_cc:
+        same_country = _find_nearest([country_code])
+        if same_country is not None:
+            return same_country
+
+    # 2. Same culture circle
+    if country_code:
+        for _circle_name, circle_ccs in _CULTURE_CIRCLES.items():
+            if country_code in circle_ccs:
+                circle_st = _find_nearest(circle_ccs)
+                if circle_st is not None:
+                    return circle_st
+                break
+
+    # 3. Find globally nearest station
     best: dict | None = None
     best_dist = math.inf
     for st in stations:
@@ -96,7 +141,7 @@ def _pick_nearest_from_fallback(lat: float, lon: float) -> dict | None:
     if best_dist <= _MAX_NEARBY_KM:
         return best
 
-    # 2. Find nearest region by computing distance to each region's centroid
+    # 4. Find nearest region by computing distance to each region's centroid
     _REGION_CENTROIDS: dict[str, tuple[float, float]] = {
         "asia":     (30.0, 105.0),
         "europe":   (50.0, 10.0),
@@ -117,7 +162,7 @@ def _pick_nearest_from_fallback(lat: float, lon: float) -> dict | None:
     if nearest_region is None:
         return best  # should not happen
 
-    # 3. From that region, pick the nearest station to the user
+    # 5. From that region, pick the nearest station to the user
     rep_ccs = _REGION_REPS.get(nearest_region, [])
     region_best: dict | None = None
     region_best_dist = math.inf
@@ -143,13 +188,11 @@ async def nearest(lat: float, lon: float, country_code: str | None) -> dict | No
     离线优先：先查本地兜底清单，再试外网 API。
     """
     # ── 1. Offline fallback first (instant) ─────────────────────────
-    fallback = _pick_nearest_from_fallback(lat, lon)
-    if fallback is not None:
-        return fallback
-
-    # ── 2. Try live API (slow) ──────────────────────────────────────
     if country_code is None:
         country_code = country.country_code_of(lat, lon)
+    fallback = _pick_nearest_from_fallback(lat, lon, country_code=country_code)
+    if fallback is not None:
+        return fallback
 
     mirrors = list(_MIRRORS)
     random.shuffle(mirrors)
@@ -199,4 +242,4 @@ async def nearest(lat: float, lon: float, country_code: str | None) -> dict | No
                     continue
 
     # ── Fallback ─────────────────────────────────────────────────────
-    return _pick_nearest_from_fallback(lat, lon)
+    return _pick_nearest_from_fallback(lat, lon, country_code=country_code)

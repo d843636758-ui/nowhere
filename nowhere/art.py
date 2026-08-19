@@ -11,15 +11,16 @@ The unified Card schema in cards.py covers static card sources.
 
 from __future__ import annotations
 
-import asyncio
 import gzip
 import json as _json
+import logging
 import pathlib
 import random
-import re
 from urllib.parse import quote_plus
 
 from nowhere import providers
+
+logger = logging.getLogger(__name__)
 
 # ── Local art database ─────────────────────────────────────────────
 _ART_DB = None
@@ -38,99 +39,6 @@ def _load_art_db() -> dict:
 
 SOURCE = "metmuseum"
 
-# ── ZIM enrichment: real art interpretation ───────────────────────────
-_ZIM = None
-_ZIM_PATH = pathlib.Path(__file__).resolve().parent / "data" / "packs" / "wikipedia_zh_mini.zim"
-
-
-def _get_zim():
-    global _ZIM
-    if _ZIM is None:
-        try:
-            from zimply.zimply import ZIMFile
-            _ZIM = ZIMFile(str(_ZIM_PATH), encoding="utf-8")
-        except Exception:
-            _ZIM = False  # sentinel: tried and failed
-    return _ZIM if _ZIM is not False else None
-
-
-_TITLE_ZH: dict[str, str] = {
-    "The Great Wave off Kanagawa": "神奈川冲浪里",
-    "The Starry Night": "星夜",
-    "Sunflowers": "向日葵",
-    "The Persistence of Memory": "记忆的永恒",
-    "Girl with a Pearl Earring": "戴珍珠耳环的少女",
-    "The Last Supper": "最后的晚餐",
-    "Mona Lisa": "蒙娜丽莎",
-    "The Birth of Venus": "维纳斯的诞生",
-    "The Scream": "呐喊",
-    "A Sunday on La Grande Jatte": "大碗岛的星期天下午",
-    "The Night Watch": "夜巡",
-    "Guernica": "格尔尼卡",
-    "The Kiss": "吻",
-    "Water Lilies": "睡莲",
-    "Impression, Sunrise": "印象·日出",
-    "The Garden of Earthly Delights": "人间乐园",
-    "The Creation of Adam": "创造亚当",
-    "American Gothic": "美国哥特式",
-    "Liberty Leading the People": "自由引导人民",
-    "The Tower of Babel": "巴别塔",
-    "Nighthawks": "夜游者",
-    "Campbell's Soup Cans": "金宝汤罐头",
-    "The Sleeping Gypsy": "沉睡的吉普赛人",
-    "富春山居图": "富春山居图",
-    "清明上河图": "清明上河图",
-    "Fishing in Autumn on a Clear Lake": "秋江渔艇图",
-    "The Fighting Temeraire": "勇猛号战舰",
-    "Wheat Field with Cypresses": "麦田与柏树",
-    "Café Terrace at Night": "夜间露天咖啡馆",
-    "The Arnolfini Portrait": "阿尔诺芬尼夫妇像",
-    "Las Meninas": "宫娥",
-    "Christina's World": "克里斯蒂娜的世界",
-    "The Thinker": "思想者",
-    "Venus de Milo": "米洛的维纳斯",
-    "Winged Victory of Samothrace": "萨莫色雷斯的胜利女神",
-    "The Raft of the Medusa": "美杜莎之筏",
-    "Olympia": "奥林匹亚",
-    "A Bar at the Folies-Bergère": "女神游乐厅吧台",
-}
-
-
-def _t2s(text: str) -> str:
-    """Traditional → Simplified Chinese."""
-    try:
-        import opencc
-        converter = opencc.OpenCC("t2s")
-        return converter.convert(text)
-    except Exception:
-        return text
-
-
-def _zim_extract(title: str) -> str | None:
-    """Look up an artwork in Wikipedia ZIM, return first paragraph (simplified) or None."""
-    zim = _get_zim()
-    if not zim:
-        return None
-    # Map English title to Chinese if possible
-    zh_title = _TITLE_ZH.get(title, title)
-    # Try exact title, then title with " (画)" suffix for disambiguation
-    for candidate in [zh_title, f"{zh_title} (画)", f"{zh_title} (绘画)", title]:
-        try:
-            art = zim.get_article_by_url("C", candidate)
-            if art and art.data:
-                html = art.data.decode("utf-8", errors="replace")
-                m = re.search(r"<p[^>]*>(.*?)</p>", html, re.DOTALL)
-                if m:
-                    text = m.group(1)
-                    text = re.sub(r"<sup[^>]*>.*?</sup>", "", text, flags=re.DOTALL)
-                    text = re.sub(r"<[^>]+>", "", text)
-                    text = re.sub(r"\s+", " ", text).strip()
-                    if len(text) > 20:
-                        return _t2s(text[:300])
-        except Exception:
-            continue
-    return None
-
 # ── Geo → culture search terms ──────────────────────────────────────
 # Map lat/lon bands to Met search keywords.  Crude but effective:
 # the Met's search indexes culture/department/tags, so "Japanese"
@@ -138,21 +46,31 @@ def _zim_extract(title: str) -> str | None:
 
 _GEO_CULTURE: list[tuple[float, float, float, float, str]] = [
     # (lat_min, lat_max, lon_min, lon_max, search_keyword)
+    # Order matters: more specific before more general (first match wins).
+
     # Central Asia / Mongolia (BEFORE Chinese to avoid overlap)
     (40, 55, 87, 120, "Central Asian"),
-    (35, 55, 50, 90, "Islamic"),
+
+    # Middle East -- Iran, Iraq, Arabian Peninsula, Turkey
+    (15, 42, 35, 65, "Middle Eastern"),
+
     # East Asia
     (20, 50, 100, 145, "Japanese"),
     (33, 43, 124, 132, "Korean"),
     (18, 55, 73, 135, "Chinese"),
-    # South / Southeast Asia
-    (5, 38, 60, 100, "Indian"),
+
+    # South Asia -- mainland + islands (Maldives, Sri Lanka, etc.)
+    (-10, 38, 60, 100, "South Asian"),
+
+    # Southeast Asia
     (-10, 25, 90, 155, "Southeast Asian"),
-    # Middle East / North Africa
-    (10, 45, 25, 65, "Islamic"),
-    (20, 40, -15, 55, "Egyptian"),
+
+    # North Africa
+    (15, 40, -15, 35, "North African"),
+
     # Sub-Saharan Africa
-    (-35, 20, -20, 55, "African"),
+    (-35, 15, -20, 55, "African"),
+
     # Europe
     (35, 72, -15, 40, "European"),
     (35, 60, -10, 3, "Spanish"),
@@ -161,36 +79,50 @@ _GEO_CULTURE: list[tuple[float, float, float, float, str]] = [
     (47, 60, 5, 30, "German"),
     (50, 62, -10, 2, "British"),
     (55, 85, 5, 35, "Scandinavian"),
+
     # Americas
     (10, 35, -130, -60, "American"),
-    (-55, 15, -85, -35, "Latin American"),
+    (-55, 10, -85, -35, "Latin American"),
     (15, 33, -120, -85, "Pre-Columbian"),
+
     # Oceania
     (-50, -5, 110, 180, "Oceanic"),
 ]
 
 # 地理关键词 → Met 数据库实际 culture key 映射
+# 每个区至少 2 个 key；映射不出的区在 _local_art_match 中走"查无不出"。
 _GEO_TO_MET_CULTURE: dict[str, list[str]] = {
-    "Central Asian": ["central asian", "mongolian", "tibetan"],
-    "Islamic": ["islamic", "iran", "persian", "sasanian", "ottoman", "turkish"],
+    "Central Asian": ["central asian", "mongolian", "tibetan", "bactria-margiana"],
+    "Middle Eastern": ["iran", "persian", "sasanian", "turkish", "islamic",
+                       "assyrian", "babylonian", "parthian", "nabataean",
+                       "elamite", "mitanni", "sumerian"],
     "Japanese": ["japan", "japanese"],
     "Korean": ["korea", "korean"],
     "Chinese": ["china", "chinese", "north china", "northeast china"],
-    "Indian": ["india", "indian", "nepal", "sri lankan", "mughal"],
-    "Southeast Asian": ["thailand", "cambodia", "indonesia", "java", "javanese", "bornean", "sumatra", "philippine", "myanmar", "burmese"],
-    "Egyptian": ["egypt", "egyptian"],
-    "African": ["african", "akan", "dogon", "edo", "kongo", "yoruba", "tabwa", "teke", "ghanaian", "nigerian", "seneca", "tlingit"],
-    "European": ["european", "british", "french", "german", "italian", "spanish", "dutch", "netherlandish", "austrian", "swiss", "hungarian", "catalan"],
+    "South Asian": ["india", "indian", "nepal", "sri lankan", "pakistan", "mughal"],
+    "Southeast Asian": ["thailand", "cambodia", "indonesia", "java", "javanese",
+                        "bornean", "sumatra", "philippine", "myanmar", "burmese",
+                        "dyak"],
+    "North African": ["moroccan", "egypt", "egyptian", "islamic"],
+    "African": ["african", "akan", "dogon", "edo", "kongo", "yoruba",
+                "tabwa", "teke", "ghanaian", "nigerian"],
+    "European": ["european", "british", "french", "german", "italian", "spanish",
+                 "dutch", "netherlandish", "austrian", "swiss", "hungarian", "catalan"],
     "Spanish": ["spanish", "catalan"],
     "Italian": ["italian", "milan", "brescia", "savoy"],
     "French": ["french", "paris"],
-    "German": ["german", "augsburg", "nuremberg", "dresden", "landshut", "strasburg", "saxony"],
+    "German": ["german", "augsburg", "nuremberg", "dresden", "landshut",
+               "strasburg", "saxony"],
     "British": ["british", "london"],
     "Scandinavian": ["scandinavian", "norwegian", "swedish", "danish", "finnish"],
     "American": ["american", "colonial american", "alaska", "tlingit", "inuit", "yupik"],
-    "Latin American": ["mexican", "peruvian", "colombian", "ecuador", "costa rica", "nicaragua", "aztec", "maya", "inca", "moche", "nasca", "chimú", "paracas"],
-    "Pre-Columbian": ["maya", "aztec", "mexica", "olmec", "inca", "moche", "nasca", "chimú", "paracas", "toltec", "mezcala"],
-    "Oceanic": ["maori", "kanak", "lapita", "polynesian", "melanesian", "micronesian", "papua", "bornean", "balinese"],
+    "Latin American": ["mexican", "peruvian", "colombian", "ecuador", "costa rica",
+                       "nicaragua", "aztec", "maya", "inca", "moche", "nasca",
+                       "chimú", "paracas"],
+    "Pre-Columbian": ["maya", "aztec", "mexica", "olmec", "inca", "moche", "nasca",
+                      "chimú", "paracas", "toltec", "mezcala"],
+    "Oceanic": ["maori", "kanak", "lapita", "polynesian", "melanesian",
+                "micronesian", "papua", "bornean", "balinese"],
 }
 
 
@@ -229,42 +161,60 @@ _MOOD_WHY: dict[str, str] = {
 }
 
 
-def _mood_why(mood: str) -> str:
-    return _MOOD_WHY.get(mood, "此刻应景")
+def _mood_why(mood: str, *, culture_matched: bool = False) -> str:
+    """Return a truthful 'why' string, or empty if nothing applies.
+
+    * ``culture_matched=True``  → mood text or "此刻应景" (culture is genuine)
+    * ``culture_matched=False`` → mood text only; unknown mood → ""
+    """
+    known = _MOOD_WHY.get(mood)
+    if known:
+        return known
+    if culture_matched:
+        return "此刻应景"
+    return ""
 
 
 # ── Local art match ─────────────────────────────────────────────────
 
 
 def _local_art_match(lat: float, lon: float, mood: str, rng: random.Random) -> dict | None:
-    """Find artwork from local database matching geo region."""
+    """Find artwork from local database matching geo region.
+
+    Returns *None* when culture cannot be verified -- silent miss is better
+    than showing a mismatched piece (the "lying" scenario of card 61).
+    """
     db = _load_art_db()
     artworks = db.get("artworks", [])
     if not artworks:
         return None
 
-    # Get geo culture keyword
+    # ── Step 1: resolve geo → culture keyword ────────────────────────
     culture = _geo_culture(lat, lon)
+    if not culture:
+        logger.info("art_geo: no geo region for (%s, %s)", lat, lon)
+        return None
 
-    # Try culture-specific first (use mapping to Met database keys)
-    candidates = []
-    if culture:
-        by_culture = db.get("by_culture", {})
-        # 使用映射表找到对应的 Met culture keys
-        met_keys = _GEO_TO_MET_CULTURE.get(culture, [])
-        matching_indices = []
-        for mk in met_keys:
-            mk_lower = mk.lower()
-            for ck, idxs in by_culture.items():
-                if mk_lower in ck or ck in mk_lower:
-                    matching_indices.extend(idxs)
-        candidates = [artworks[i] for i in matching_indices if i < len(artworks)]
+    # ── Step 2: map to Met database culture keys ─────────────────────
+    met_keys = _GEO_TO_MET_CULTURE.get(culture, [])
+    if not met_keys:
+        logger.info("art_geo: region=%s has no met_keys mapping", culture)
+        return None
 
-    # If no culture match, use all
+    by_culture = db.get("by_culture", {})
+    matching_indices: list[int] = []
+    for mk in met_keys:
+        mk_lower = mk.lower()
+        for ck, idxs in by_culture.items():
+            if mk_lower in ck or ck in mk_lower:
+                matching_indices.extend(idxs)
+    candidates = [artworks[i] for i in matching_indices if i < len(artworks)]
+
     if not candidates:
-        candidates = artworks
+        logger.info("art_geo: region=%s met_keys=%s → 0 candidates", culture, met_keys)
+        return None
 
-    # Pick random from top 50
+    # ── Step 3: pick from the culture-matched pool ───────────────────
     pool = candidates[:50]
     rng.shuffle(pool)
     for art in pool[:5]:
@@ -281,7 +231,7 @@ def _local_art_match(lat: float, lon: float, mood: str, rng: random.Random) -> d
                 "department": art.get("dept", ""),
                 "tags": [],
                 "zim_extract": None,  # will be filled by caller
-                "why": _mood_why(mood),
+                "why": _mood_why(mood, culture_matched=True),
             }
     return None
 
@@ -292,8 +242,9 @@ async def match(lat: float, lon: float, mood: str, rng: random.Random | None = N
     """Return a geo-aware, mood-matched artwork, or *None*.
 
     Strategy:
-      1. Try local database first (fast, no network)
+      1. Try local database (culture-verified only, no global pool)
       2. Fall back to Met API (culture + mood, then mood only)
+      3. No match → None  (silent miss beats a lie)
     """
     if rng is None:
         rng = random.Random()
@@ -303,24 +254,13 @@ async def match(lat: float, lon: float, mood: str, rng: random.Random | None = N
     # ── 1. Try local database first ─────────────────────────────────
     result = _local_art_match(lat, lon, mood, rng)
     if result:
-        # Try ZIM enrichment (with timeout to avoid blocking)
-        title = result.get("title", "")
-        if title:
-            try:
-                zim_text = await asyncio.wait_for(
-                    asyncio.to_thread(_zim_extract, title), timeout=5.0
-                )
-                if zim_text:
-                    result["zim_extract"] = zim_text
-            except (asyncio.TimeoutError, Exception):
-                pass
         return result
 
     # ── 2. Fall back to Met API ─────────────────────────────────────
     mood_term = _MOOD_SEARCH.get(mood, mood)
     culture = _geo_culture(lat, lon)
 
-    # Try culture + mood first
+    # Try culture + mood (API result culture is unverifiable → mood-only why)
     if culture:
         search_term = f"{culture} {mood_term}"
         api_result = await _search_and_pick(search_term, mood, rng)
@@ -332,12 +272,21 @@ async def match(lat: float, lon: float, mood: str, rng: random.Random | None = N
     if api_result:
         return api_result
 
-    # Last resort: generic "art"
-    return await _search_and_pick("painting", mood, rng)
+    # No last-resort generic search -- if nothing matches, stay silent.
+    return None
 
 
 async def _search_and_pick(search_term: str, mood: str, rng: random.Random) -> dict | None:
-    """Search Met API and return a random artwork, or None."""
+    """Search Met API and return a random artwork, or None.
+
+    API results cannot be culture-verified, so ``why`` is always
+    mood-only text -- never "此刻应景".
+    """
+    # Resolve mood-only why; if mood unknown, no card.
+    why = _mood_why(mood, culture_matched=False)
+    if not why:
+        return None
+
     search_url = (
         "https://collectionapi.metmuseum.org/public/collection/v1/search"
         f"?hasImages=true&q={quote_plus(search_term)}"
@@ -374,9 +323,6 @@ async def _search_and_pick(search_term: str, mood: str, rng: random.Random) -> d
             if isinstance(t, dict) and t.get("name")
         ]
 
-        # Try ZIM enrichment: real art interpretation
-        zim_text = _zim_extract(title)
-
         return {
             "title": title,
             "artist": obj_data.get("artistDisplayName", "") or "佚名",
@@ -388,7 +334,7 @@ async def _search_and_pick(search_term: str, mood: str, rng: random.Random) -> d
             "classification": obj_data.get("classification", ""),
             "department": obj_data.get("department", ""),
             "tags": tags[:5],
-            "zim_extract": zim_text,
-            "why": _mood_why(mood),
+            "zim_extract": None,
+            "why": why,
         }
     return None
