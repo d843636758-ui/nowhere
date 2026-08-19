@@ -164,6 +164,7 @@ async def about(lat: float, lon: float, topic: str) -> dict | None:
         If empty, try to find the nearest named place from *lat/lon*.
     """
     title = topic.strip() if topic else ""
+    place_name = ""  # resolved below if needed
 
     # --- 1. Try local knowledge base first ---
     kb = _load_local_kb()

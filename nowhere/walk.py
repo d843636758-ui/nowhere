@@ -128,6 +128,19 @@ def step(
                     break
             if far_slope is None:
                 no_gain = True
+                return {
+                    "blocked": False,
+                    "reason": None,
+                    "entered_water": False,
+                    "elevation_delta": 0.0,
+                    "slope_deg": 0.0,
+                    "dist_km": dist_km,
+                    "new_surface": terrain.surface(lat, lon),
+                    "climbed": False,
+                    "no_gain": True,
+                    "far_slope": None,
+                    "sea_ahead_km": None,
+                }
     else:
         bearing = _bearing_from_path(state.path)
 

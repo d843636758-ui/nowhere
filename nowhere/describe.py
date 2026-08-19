@@ -362,15 +362,13 @@ def _location_offset(rng: random.Random, lat: float, lon: float) -> None:
     This consumes a few random values to shift the RNG sequence, ensuring that
     two locations with the same surface type don't produce identical scene text.
     Deterministic: same (lat, lon) always consumes the same number of values.
+
+    IMPORTANT: Never re-seed the shared module-level rng — that would make all
+    subsequent "random" choices a deterministic function of coordinates.
     """
     import hashlib
     h = hashlib.md5(f"{lat:.4f},{lon:.4f}".encode()).hexdigest()
     skip = int(h[:4], 16) % 7  # 0-6 extra random calls
-    # Use seed if available (real Random), otherwise just consume values (mock)
-    try:
-        rng.seed(int(h[:8], 16))
-    except (AttributeError, TypeError):
-        pass
     for _ in range(skip):
         rng.random()
 

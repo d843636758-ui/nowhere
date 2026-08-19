@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import random
+import sys
 
 import pytest
 
 from nowhere import placememory, server
+
+# asyncio.to_thread + ProactorEventLoop hangs on Windows
+_win32_skip = pytest.mark.skipif(sys.platform == "win32", reason="asyncio.to_thread hangs on Windows")
 from nowhere.state import WorldState
 
 
@@ -39,6 +43,7 @@ def test_postmark_defaults_when_no_env():
     assert stamp["phase"] == "day"
 
 
+@_win32_skip
 def test_look_around_records_sighting(monkeypatch):
     """强制走 life 分支: 方志无货,rng.random 交替返回跳过美食/命中生命。"""
     from nowhere import localcolor

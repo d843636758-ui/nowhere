@@ -222,7 +222,10 @@ async def _get_radio(lat: float, lon: float) -> dict | None:
         if _km((lat, lon), _state.radio_pos) < 50.0:
             return _state.radio_station
     cc = country.country_code_of(lat, lon)
-    station = await asyncio.wait_for(radio.nearest(lat, lon, cc), timeout=8.0)
+    try:
+        station = await asyncio.wait_for(radio.nearest(lat, lon, cc), timeout=8.0)
+    except (asyncio.TimeoutError, Exception):
+        return None
     if station is not None:
         _state.radio_station = station
         _state.radio_pos = (lat, lon)
@@ -963,13 +966,14 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     _record_footprint("land", prose)
 
     # ── 6. Save complete state and environment snapshot ───────────────
+    # Keep flat format consistent with _gather_env() — never nest under "terrain".
     _state.last_env = {
+        "elevation": env.get("elevation"),
+        "surface": env.get("surface"),
         "weather": env.get("weather"),
-        "terrain": {
-            "elevation": env.get("elevation"),
-            "surface": env.get("surface"),
-        },
         "sky": env.get("sky"),
+        "radio": env.get("radio"),
+        "water_features": env.get("water_features"),
     }
     _state.env_pos = (lat, lon)
     _state.env_at = _state.now()
@@ -1090,9 +1094,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # ── 1. Parse direction & step ────────────────────────────────────
     bearing, semantic, direction_invalid = _parse_bearing(direction)
     step_result = walk_mod.step(_state, bearing, semantic, distance_km)
-
-    # Advance simulated time: ~1 hour per 5km walking
-    _state.elapsed_hours += distance_km / 5.0
+    # NOTE: time accumulation is handled inside walk.step() using actual
+    # distance and speed — do NOT add time here (would double-count).
 
     # ── 2. Blocked → render blocked only ─────────────────────────────
     if step_result.get("blocked"):
@@ -1340,9 +1343,12 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # ── 6. Update state.last_env ─────────────────────────────────────
     _state.last_env = {
+        "elevation": env.get("elevation"),
+        "surface": env.get("surface"),
         "weather": env.get("weather"),
-        "terrain": env.get("terrain"),
         "sky": env.get("sky"),
+        "radio": env.get("radio"),
+        "water_features": env.get("water_features"),
     }
     _state.last_surface = current_surface
     _state.last_elevation = current_elevation
@@ -1762,9 +1768,12 @@ async def wait_impl(hours: float = 1.0) -> dict:
 
     # Update state
     _state.last_env = {
+        "elevation": env.get("elevation"),
+        "surface": env.get("surface"),
         "weather": env.get("weather"),
-        "terrain": {"elevation": env.get("elevation"), "surface": env.get("surface")},
         "sky": env.get("sky"),
+        "radio": env.get("radio"),
+        "water_features": env.get("water_features"),
     }
     _state.last_text = text
     _record_footprint("wait", text)
@@ -1970,9 +1979,12 @@ async def walk_to_impl(place: str) -> dict:
     lat, lon = _state.pos
     env, _ = await _gather_env_cached(lat, lon, now)
     _state.last_env = {
+        "elevation": env.get("elevation"),
+        "surface": env.get("surface"),
         "weather": env.get("weather"),
-        "terrain": {"elevation": env.get("elevation"), "surface": env.get("surface")},
         "sky": env.get("sky"),
+        "radio": env.get("radio"),
+        "water_features": env.get("water_features"),
     }
     _state.last_surface = env.get("surface", "")
     _state.last_elevation = env.get("elevation", 0)
@@ -2316,9 +2328,10 @@ def postcards() -> dict:
         return {"text": "还没收到过明信片。空空的。", "data": {"postcards": []}}
     parts = []
     for c in cards:
-        who = c.get("from_place", "远方")
-        msg = c.get("message", "")
-        time_str = c.get("local_time", "")
+        stamp = c.get("stamp", {})
+        who = stamp.get("place", "远方")
+        msg = c.get("text", "")
+        time_str = stamp.get("local_time", "")
         parts.append(f"来自{who}（{time_str}）：{msg}")
     text = f"你收到了 {len(cards)} 张明信片。\n" + "\n---\n".join(parts)
     return {"text": text, "data": {"postcards": cards}}

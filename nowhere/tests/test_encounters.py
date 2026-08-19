@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import random
+import sys
 
 import httpx
 import pytest
 
 from nowhere import art, knowledge, life
+
+# asyncio.to_thread + ProactorEventLoop hangs on Windows
+_win32_skip = pytest.mark.skipif(sys.platform == "win32", reason="asyncio.to_thread hangs on Windows")
 
 
 # ── life.py ───────────────────────────────────────────────────────
@@ -229,6 +233,7 @@ async def test_art_returns_none_when_down(respx_mock, monkeypatch):
 
 # ── knowledge.py (offline ZIM) ────────────────────────────────────
 
+@_win32_skip
 @pytest.mark.anyio
 async def test_knowledge_zim_topic_lookup():
     """ZIM lookup by topic returns title + extract."""
@@ -239,12 +244,14 @@ async def test_knowledge_zim_topic_lookup():
     assert r["url"].startswith("https://zh.wikipedia.org/")
 
 
+@_win32_skip
 @pytest.mark.anyio
 async def test_knowledge_zim_returns_none_unknown_topic():
     """Unknown topic returns None."""
     assert await knowledge.about(0, 0, "不存在的条目_xyzzy") is None
 
 
+@_win32_skip
 @pytest.mark.anyio
 async def test_knowledge_zim_returns_none_empty_topic_no_places():
     """Empty topic with no places.db returns None (graceful fallback)."""
@@ -256,6 +263,7 @@ async def test_knowledge_zim_returns_none_empty_topic_no_places():
     assert r is None or isinstance(r.get("title"), str)
 
 
+@_win32_skip
 @pytest.mark.anyio
 async def test_knowledge_zim_file_missing(monkeypatch, tmp_path):
     """ZIM file missing returns None gracefully."""

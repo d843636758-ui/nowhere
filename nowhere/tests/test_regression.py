@@ -131,15 +131,16 @@ def test_water_ahead_logic():
     from nowhere.walk import water_ahead_km
     import nowhere.terrain as terrain_mod
 
-    # Patch is_water: "water" appears ~5 km east of origin.
-    # destination() computes the real point at distance d along bearing,
-    # so we just check if that point is past the water boundary.
-    real_dest = terrain_mod.destination
+    # Patch surface: "water_ocean" appears ~5 km east of origin.
+    # water_ahead_km() uses terrain.surface(), not terrain.is_water().
+    real_surface = terrain_mod.surface
 
-    def fake_is_water(lat, lon):
-        return lon > 0.04  # ~4.4 km east of lon=0
+    def fake_surface(lat, lon):
+        if lon > 0.04:  # ~4.4 km east of lon=0
+            return "water_ocean"
+        return real_surface(lat, lon)
 
-    with patch.object(terrain_mod, "is_water", side_effect=fake_is_water):
+    with patch.object(terrain_mod, "surface", side_effect=fake_surface):
         # walk due east (bearing=90) from (0, 0); should hit water by ~5 km
         d = water_ahead_km(0.0, 0.0, 90.0, 20.0)
         assert d is not None, "should find water to the east"
