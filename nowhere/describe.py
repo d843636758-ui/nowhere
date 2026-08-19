@@ -1040,8 +1040,15 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
     all_transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,"]
     action_transitions = ["", "同时,"]
     if section_type == "walk":
-        all_transitions = ["", "", "同时,", "头顶上,", "风里,", "远处,", "走着走着,"]
-        action_transitions = ["", "同时,", "走着走着,"]
+        all_transitions = [
+            "", "",
+            "同时,", "头顶上,", "风里,", "远处,", "走着走着,",
+            "这会儿,", "紧接着,", "没过多会儿,",
+        ]
+        action_transitions = [
+            "", "同时,", "走着走着,",
+            "这会儿,", "紧接着,",
+        ]
 
     parts: list[str] = []
     used: set[str] = set()

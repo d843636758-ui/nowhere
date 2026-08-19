@@ -246,6 +246,20 @@ def footprints() -> list[dict]:
     return list(reversed(_load("footprints.json").get("items", [])))
 
 
+# ── Travelers (cotraveler system, card 44) ────────────────────────────
+
+def load_travelers() -> dict:
+    """Load travelers.json (cotraveler registry)."""
+    return _load("travelers.json")
+
+
+def save_travelers(data: dict) -> None:
+    """Save travelers.json."""
+    _dump("travelers.json", data)
+
+
+# ── Journey footprints ─────────────────────────────────────────────────
+
 def journey_footprints() -> list[dict]:
     """返回已记录行动，并诚实补充旧数据中可确认的旅程证据。"""
     items = footprints()

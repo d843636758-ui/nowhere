@@ -262,4 +262,6 @@ def step(
     }
     if clamped:
         result["clamped"] = True
+    if lat_limit_reached:
+        result["lat_limit"] = True
     return result

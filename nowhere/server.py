@@ -53,6 +53,7 @@ from nowhere import (
     soundscape,
     state as state_mod,
     terrain,
+    travelers as travelers_mod,
     walk as walk_mod,
     water,
     weather,
@@ -75,6 +76,8 @@ _web_port: int | None = None  # reserved for Task 11
 _web_url_announced: bool = False  # open_door 首次告知用户旁观者地址
 _tf: TimezoneFinder = TimezoneFinder()
 _recent_salience_kinds: set[str] = set()  # Bug 4: track recent salience kinds
+_cotraveler_encounter_counts: dict[str, int] = {}  # how many times we've seen each traveler's footprints
+_cotraveler_meeting_log: dict[str, str] = {}  # pair_key -> last meeting ISO timestamp
 
 
 def _serialized_action(func):
@@ -280,6 +283,108 @@ _DEST_TEMPLATES: list[str] = [
     "脚下这条路通往{place},就在{dir}边。",
     "{dir}边的地平线上,{place}的轮廓若隐若现。",
     "远处{dir}方,{place}像一个还没讲完的故事。",
+]
+
+# ── Density decay: wilderness depth calculation (Card 40) ──────────
+
+def _compute_wilderness_depth_km(lat: float, lon: float) -> float:
+    """Compute distance (km) from (lat, lon) to nearest known place or water feature.
+
+    Uses explorable_index.json places and hydrology offline water features.
+    Returns 0.0 if within 5km of any known feature, otherwise the distance.
+    """
+    import json as _json
+    import pathlib as _pathlib
+    from math import radians, sin, cos, sqrt, atan2
+
+    def _haversine_km(lat1, lon1, lat2, lon2):
+        R = 6371.0
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    min_dist = float("inf")
+
+    # Check explorable_index places
+    try:
+        fp = _pathlib.Path(__file__).resolve().parent / "data" / "explorable_index.json"
+        if fp.exists():
+            data = _json.loads(fp.read_text(encoding="utf-8"))
+            for name, info in data.get("places", {}).items():
+                plat = info.get("lat")
+                plon = info.get("lon")
+                if plat is not None and plon is not None:
+                    d = _haversine_km(lat, lon, plat, plon)
+                    if d < min_dist:
+                        min_dist = d
+    except Exception:
+        pass
+
+    # Check offline water features
+    try:
+        fp = _pathlib.Path(__file__).resolve().parent / "data" / "water_features_offline.json"
+        if fp.exists():
+            data = _json.loads(fp.read_text(encoding="utf-8"))
+            for entry in data.get("entries", []):
+                elat = entry.get("lat", 0)
+                elon = entry.get("lon", 0)
+                d = _haversine_km(lat, lon, elat, elon)
+                if d < min_dist:
+                    min_dist = d
+    except Exception:
+        pass
+
+    # If no features found, return a large value
+    if min_dist == float("inf"):
+        return 1000.0
+
+    return min_dist
+
+
+# ── Deep wilderness variants (Card 40) ─────────────────────────────
+
+# "荒深档": sky/earth/body only, world quiet but not empty
+# Forbidden: "什么都没有" — use light/wind/ground texture
+_WILDERNESS_VARIANTS: list[str] = [
+    "地平线在四面八方同时弯下去。风从左边来,又从右边来。",
+    "云很低,像一块灰色的布盖在世界上。你的影子不见了。",
+    "脚下是干裂的泥,裂缝里有蚂蚁在走。它们比你忙。",
+    "远处有什么在反光,走了很久也没走到。可能是石头,可能是水。",
+    "风把你的衣服吹得贴在身上。你闻到尘土的味道。",
+    "天和地之间只有你。不是孤独,是空旷。",
+    "地面是平的,一直平到天边。你的脚步声是唯一的声音。",
+    "空气干得嘴唇裂了。你舔了一下,是血的味道。",
+]
+
+
+# ── Deep wilderness procedural features (12 variants) ──────────────
+
+_WILDERNESS_FEATURES: list[str] = [
+    "一棵树,不知道为什么长在这里。树干弯了,朝着风的方向。",
+    "一段旧路基,石头被磨得光滑。不知道通向哪里。",
+    "一个泉眼,水从石头缝里渗出来。你蹲下来喝了一口,凉的。",
+    "一堆石头,排成了圈。不知道是人放的还是风吹的。",
+    "一根电线杆,歪了,没有电线。不知道什么时候倒的。",
+    "一截铁路,铁轨锈了,枕木烂了。草从铁轨缝里长出来。",
+    "一个坑,不知道挖来做什么的。坑底有积水,绿色的。",
+    "一块水泥板,上面有字,看不清了。你用手擦了擦,还是看不清。",
+    "一棵枯树,树皮剥落了,木头是白色的。鸟在上面筑了巢。",
+    "一条干涸的河床,石头被水冲得圆圆的。你走在上面,硌脚。",
+    "一个土堆,上面长满了草。你绕过去,什么也没有。",
+    "一块界碑,字被风沙磨平了。你不知道这里是哪里的边界。",
+]
+
+
+# ── Deep wilderness procedural flesh event (5% after 10+ steps) ────
+
+_WILDERNESS_FLESH_EVENTS: list[str] = [
+    "你的手背上有一道伤痕,不知道什么时候划的。血已经干了。",
+    "你低头看脚,鞋带散了。你蹲下来系,发现鞋底磨穿了一块。",
+    "你的嘴唇裂了。你用舌头舔了一下,咸的。",
+    "你发现口袋里有一张纸,皱巴巴的。你展开看,什么也没写。",
+    "你的膝盖响了一声。你停下来,等了一会儿,又走了。",
+    "你看见自己的影子,比刚才长了。你走了多久了?",
 ]
 
 
@@ -959,14 +1064,14 @@ def _build_salience_candidates(
 # =====================================================================
 
 
-async def open_door_impl(to: str | None = None, resume: bool = False) -> dict:
+async def open_door_impl(to: str | None = None, resume: bool = False, traveler_name: str | None = None) -> dict:
     """Open the door and land somewhere."""
     async with _action_lock:
         async with _door_lock:
-            return await _open_door_locked(to, resume=resume)
+            return await _open_door_locked(to, resume=resume, traveler_name=traveler_name)
 
 
-async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict:
+async def _open_door_locked(to: str | None = None, resume: bool = False, traveler_name: str | None = None) -> dict:
     """Door body, called under _door_lock."""
     global _state, _rng, _recent_salience_kinds
 
@@ -1033,6 +1138,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
         lat, lon = spot["lat"], spot["lon"]
         place_name = spot.get("name_hint", "未知之地")
     elif not restored:
+        found_river = False
         mark_entry = marks_mod.get(to)
         if mark_entry:
             lat, lon = mark_entry["lat"], mark_entry["lon"]
@@ -1045,12 +1151,29 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
             else:
                 result = await asyncio.wait_for(geocode.lookup(to), timeout=10.0)
                 if result is None:
-                    return {"text": f"找不到「{to}」。", "data": {"error": "not_found"}}
-                lat, lon = result
-                place_name = to
+                    # Fallback: try river segment lookup (e.g. "长江 入海口")
+                    river_names = ["长江", "黄河", "珠江", "松花江", "淮河", "海河", "辽河"]
+                    found_river = False
+                    for rname in river_names:
+                        if rname in (to or ""):
+                            segment_hint = ""
+                            parts = (to or "").split()
+                            if len(parts) > 1:
+                                segment_hint = parts[-1]
+                            seg = _find_river_segment(rname, segment_hint)
+                            if seg:
+                                lat, lon = seg["lat"], seg["lon"]
+                                place_name = seg["segment_name"]
+                                found_river = True
+                                break
+                    if not found_river:
+                        return {"text": f"找不到「{to}」。", "data": {"error": "not_found"}}
+                else:
+                    lat, lon = result
+                    place_name = to
 
         # ── River segment awareness: 长江 → nearest scenic segment ──
-        if to and "长江" in to:
+        if to and "长江" in to and not found_river:
             segment_hint = ""
             parts = to.split()
             if len(parts) > 1:
@@ -1255,6 +1378,21 @@ async def _open_door_locked(to: str | None = None, resume: bool = False) -> dict
     _state.last_text = prose
     _record_footprint("land", prose)
 
+    # ── 5f. Cotraveler: register + @message hint ──────────────────────
+    if travelers_mod.is_enabled():
+        # Reset walk_alone for new journey
+        setattr(_state, "cotraveler_alone", False)
+        # Determine traveler name: explicit param > env var > default
+        _name = traveler_name or os.environ.get("NOWHERE_TRAVELER_NAME", "").strip()
+        if not _name:
+            _name = "网线那头的人"
+        # Register
+        travelers_mod.register(_name, place_name, lat, lon)
+        # Check @messages
+        at_hint = travelers_mod.check_at_messages(_name, _rng)
+        if at_hint:
+            prose += f"\n{at_hint}"
+
     # ── 6. Save complete state and environment snapshot ───────────────
     # Keep flat format consistent with _gather_env() — never nest under "terrain".
     _state.last_env = {
@@ -1393,9 +1531,19 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # ── 2. Blocked → render blocked only ─────────────────────────────
     if step_result.get("blocked"):
-        blocked_text = describe.render(
-            "blocked", {"reason": step_result.get("reason", "障碍")}, None, _rng,
-        )
+        reason = step_result.get("reason", "障碍")
+        if reason == "water":
+            # Honest water blocking: "前面是水面,过不去"
+            water_dist = step_result.get("water_distance_km", 0)
+            blocked_text = f"前面是水面,过不去。水在{round(water_dist)}公里外。"
+        elif reason == "cliff":
+            blocked_text = describe.render(
+                "blocked", {"reason": "cliff"}, None, _rng,
+            )
+        else:
+            blocked_text = describe.render(
+                "blocked", {"reason": reason}, None, _rng,
+            )
         return {
             "text": blocked_text,
             "data": {
@@ -1411,6 +1559,19 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             "data": {
                 "position": {"lat": _state.pos[0], "lon": _state.pos[1]},
                 "step": step_result,
+            },
+        }
+
+    # ── 2b2. lat_limit: honest latitude boundary ────────────────────
+    if step_result.get("lat_limit"):
+        from nowhere.walk import _LAT_LIMIT_CLOSINGS
+        lat_limit_text = _rng.choice(_LAT_LIMIT_CLOSINGS)
+        return {
+            "text": lat_limit_text,
+            "data": {
+                "position": {"lat": _state.pos[0], "lon": _state.pos[1]},
+                "step": step_result,
+                "lat_limit": True,
             },
         }
 
@@ -1506,9 +1667,27 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             river_dir = _compute_river_direction(water_features, lat, lon)
             river_text = _river_alignment_text(bearing, river_dir, _rng)
 
-    # ── 4. 30% chance: encounter a message ───────────────────────────
+    # ── 3.6. Density decay: update wilderness depth (Card 40) ────────
+    _state.wilderness_depth_km = _compute_wilderness_depth_km(lat, lon)
+
+    # ── 3.7. Density decay: encounter probability tiers (Card 40) ───
+    # Within 30km: normal density
+    # 30-100km: encounter probability ×0.5, sparse narrative
+    # >100km wilderness: encounter ×0.2, "荒深档" rendering
+    _wilderness_depth = _state.wilderness_depth_km
+    if _wilderness_depth > 100.0:
+        _encounter_multiplier = 0.2
+        _is_deep_wilderness = True
+    elif _wilderness_depth > 30.0:
+        _encounter_multiplier = 0.5
+        _is_deep_wilderness = False
+    else:
+        _encounter_multiplier = 1.0
+        _is_deep_wilderness = False
+
+    # ── 4. 30% chance: encounter a message (density-adjusted) ────────
     message_text = ""
-    if _state.messages and _rng.random() < 0.3:
+    if _state.messages and _rng.random() < 0.3 * _encounter_multiplier:
         msg = _rng.choice(list(_state.messages))
         content = msg["content"] if isinstance(msg, dict) else msg
         if isinstance(msg, dict):
@@ -1516,12 +1695,19 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         content = _strip_code_markers(str(content))
         message_text = describe.render("message", {"content": content}, None, _rng)
 
-    # ── 4b. 25% chance: encounter from file ─────────────────────────
+    # ── 4b. 25% chance: encounter from file (density-adjusted) ──────
     file_encounter_text = ""
-    if _rng.random() < 0.25:
+    if _rng.random() < 0.25 * _encounter_multiplier:
         enc = encounters.draw_encounter(_state.biome or "", lat, lon, _rng, place_name=_state.place_name or "")
         if enc:
             file_encounter_text = enc
+
+    # ── 4c. Deep wilderness: 10+ steps, 5% procedural flesh event ──
+    wilderness_event_text = ""
+    if (_is_deep_wilderness
+            and len(_state.path) >= 10
+            and _rng.random() < 0.05):
+        wilderness_event_text = _rng.choice(_WILDERNESS_FLESH_EVENTS)
 
     # ── 5. Salience + describe ───────────────────────────────────────
     # 留白: 缓存命中且世界没变时,跳过 env 候选举的渲染;encounter 照常 roll
@@ -1535,9 +1721,19 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             if c["kind"] == "terrain" and _state.last_env:
                 prev = _last_env_terrain_dict()
             text = describe.render(c["kind"], c["payload"], prev, _rng,
-                                   recent_scenes=_state.recent_scenes)
+                                   recent_scenes=_state.recent_scenes,
+                                   recent_touch=set(_state.recent_touch_sentences))
             if text:
                 sections.append(text)
+                # Track touch/smell sentences for dedup
+                if c["kind"] == "terrain":
+                    for ts in describe._TOUCH_BY_SURFACE.get(c["payload"].get("surface", ""), []):
+                        if ts in text:
+                            _state.recent_touch_sentences.append(ts)
+                    for bs in describe._SMELL_BY_BIOME.get(_state.biome or "", []):
+                        if bs in text:
+                            _state.recent_touch_sentences.append(bs)
+                    _state.recent_touch_sentences = _state.recent_touch_sentences[-10:]
 
     if water_text:
         sections.append(water_text)
@@ -1551,6 +1747,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         sections.append(message_text)
     if file_encounter_text:
         sections.append(file_encounter_text)
+    if wilderness_event_text:
+        sections.append(wilderness_event_text)
 
     # ── 5a. Narrative continuity + local-first scene (silenced on cache hit)
     # 留白: 缓存命中且世界没变时,env 渲染全部静音
@@ -1558,65 +1756,78 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         if narrative_text:
             sections.append(narrative_text)
 
-        # ── Local-first scene: 城市特有 > 通用 biome ───────
-        # 城市特有内容必须出现，优先级：localcolor > location > soundscape > taste
-        place = _state.place_name or ""
-        local_hour = None
-        cc = None
-        tz_name_walk = _tf.timezone_at(lat=lat, lng=lon)
-        if tz_name_walk and now is not None:
-            local_hour = now.astimezone(ZoneInfo(tz_name_walk)).hour
-        cc = country.country_code_of(lat, lon)
-        _had_local = False
+        # ── Deep wilderness: "荒深档" rendering (Card 40) ────────────
+        # >100km from any known place: sky/earth/body only, quiet but not empty
+        if _is_deep_wilderness:
+            # Sparse narrative: "好久没见着人迹了。"
+            if _wilderness_depth > 30.0 and not narrative_text:
+                sections.append("好久没见着人迹了。")
+            # Add wilderness variant (only if not too many sections already)
+            if len(sections) < 3:
+                sections.append(_rng.choice(_WILDERNESS_VARIANTS))
+            # Add procedural feature if deep enough and lucky
+            if _wilderness_depth > 100.0 and _rng.random() < 0.3:
+                sections.append(_rng.choice(_WILDERNESS_FEATURES))
+        else:
+            # ── Local-first scene: 城市特有 > 通用 biome ───────
+            # 城市特有内容必须出现，优先级：localcolor > location > soundscape > taste
+            place = _state.place_name or ""
+            local_hour = None
+            cc = None
+            tz_name_walk = _tf.timezone_at(lat=lat, lng=lon)
+            if tz_name_walk and now is not None:
+                local_hour = now.astimezone(ZoneInfo(tz_name_walk)).hour
+            cc = country.country_code_of(lat, lon)
+            _had_local = False
 
-        # 1. Localcolor card (always try if place has data)
-        if place and len(sections) < 4:
-            local_card = localcolor.draw(place, _state.seen_cards, _rng,
-                                         local_hour=local_hour, country_code=cc)
-            if local_card:
-                _state.seen_cards.add(local_card["key"])
-                placememory.save_seen_cards(place, _state.seen_cards)
-                sections.append(local_card["text"])
-                _had_local = True
-
-        # 2. Location-specific scenes (always try if place has entries)
-        if not _had_local and place and len(sections) < 4:
-            location_scenes = describe._load_location_scenes()
-            if place in location_scenes:
-                text = _pick_fresh(location_scenes[place], _rng)
-                if text:
-                    sections.append(text)
+            # 1. Localcolor card (always try if place has data)
+            if place and len(sections) < 4:
+                local_card = localcolor.draw(place, _state.seen_cards, _rng,
+                                             local_hour=local_hour, country_code=cc)
+                if local_card:
+                    _state.seen_cards.add(local_card["key"])
+                    placememory.save_seen_cards(place, _state.seen_cards)
+                    sections.append(local_card["text"])
                     _had_local = True
 
-        # 3. Soundscape (always try if place has entries)
-        if not _had_local and place and len(sections) < 4:
-            soundscapes = _load_scene_file("scene_soundscape")
-            if place in soundscapes:
-                text = _pick_fresh(soundscapes[place], _rng)
-                if text:
-                    sections.append(text)
-                    _had_local = True
+            # 2. Location-specific scenes (always try if place has entries)
+            if not _had_local and place and len(sections) < 4:
+                location_scenes = describe._load_location_scenes()
+                if place in location_scenes:
+                    text = _pick_fresh(location_scenes[place], _rng)
+                    if text:
+                        sections.append(text)
+                        _had_local = True
 
-        # 4. Taste/smell (always try if place has entries)
-        if not _had_local and place and len(sections) < 4:
-            tastes = _load_scene_file("scene_taste")
-            if place in tastes:
-                text = _pick_fresh(tastes[place], _rng)
-                if text:
-                    sections.append(text)
-                    _had_local = True
+            # 3. Soundscape (always try if place has entries)
+            if not _had_local and place and len(sections) < 4:
+                soundscapes = _load_scene_file("scene_soundscape")
+                if place in soundscapes:
+                    text = _pick_fresh(soundscapes[place], _rng)
+                    if text:
+                        sections.append(text)
+                        _had_local = True
 
-        # 5. Generic biome fallback (only if no local content found)
-        if not _had_local and len(sections) < 4:
-            composed = describe._compose_walk_scene(
-                step_result.get("new_surface", env.get("surface", "grass")),
-                _state.biome or "",
-                _rng,
-                lat=lat, lon=lon,
-                recent_scenes=_state.recent_scenes,
-            )
-            if composed:
-                sections.append(composed)
+            # 4. Taste/smell (always try if place has entries)
+            if not _had_local and place and len(sections) < 4:
+                tastes = _load_scene_file("scene_taste")
+                if place in tastes:
+                    text = _pick_fresh(tastes[place], _rng)
+                    if text:
+                        sections.append(text)
+                        _had_local = True
+
+            # 5. Generic biome fallback (only if no local content found)
+            if not _had_local and len(sections) < 4:
+                composed = describe._compose_walk_scene(
+                    step_result.get("new_surface", env.get("surface", "grass")),
+                    _state.biome or "",
+                    _rng,
+                    lat=lat, lon=lon,
+                    recent_scenes=_state.recent_scenes,
+                )
+                if composed:
+                    sections.append(composed)
 
         # 6. Narrative connector — only on direction change or every 3rd step
         direction_label = _bearing_to_label(bearing, semantic)
@@ -1703,6 +1914,29 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     prose = describe._normalize_prose(prose)
     _state.last_text = prose
     _record_footprint("walk", prose)
+
+    # ── 7b. Cotraveler: footprints + meeting + pos refresh ────────────
+    if travelers_mod.is_enabled() and not travelers_mod.walk_alone_active(_state):
+        traveler_name = os.environ.get("NOWHERE_TRAVELER_NAME", "").strip() or "网线那头的人"
+        # Refresh pos every 5 steps
+        if _state.walk_step_counter % 5 == 0:
+            travelers_mod.refresh_pos(traveler_name, lat, lon)
+        # Record footprint for this traveler
+        travelers_mod.record_footprint(traveler_name, lat, lon, _state.place_name or "")
+        # Check other travelers' footprints
+        fp_text = travelers_mod.check_footprints(
+            traveler_name, lat, lon, _rng, _cotraveler_encounter_counts,
+        )
+        if fp_text:
+            prose += f"\n{fp_text}"
+        # Check meeting (full mode only, not quiet)
+        if not travelers_mod.is_quiet():
+            my_meet, their_meet = travelers_mod.check_meeting(
+                traveler_name, lat, lon, _rng, _cotraveler_meeting_log,
+            )
+            if my_meet:
+                prose += f"\n{my_meet}"
+
     _state.save()
 
     # ── 8. Return ────────────────────────────────────────────────────
@@ -2406,6 +2640,12 @@ def where_am_i_impl() -> dict:
     if _state.souvenir:
         parts.append(f"身上带着{_state.souvenir['name']}，来自{_state.souvenir['from']}。")
 
+    # Wilderness depth reporting (Card 40: honest boundaries)
+    if _state.wilderness_depth_km > 100.0:
+        parts.append(f"荒野深处。最近的已知地点在{_state.wilderness_depth_km:.0f}公里外。")
+    elif _state.wilderness_depth_km > 30.0:
+        parts.append(f"人迹罕至。最近的已知地点在{_state.wilderness_depth_km:.0f}公里外。")
+
     return {
         "text": "".join(parts),
         "data": {
@@ -2415,6 +2655,7 @@ def where_am_i_impl() -> dict:
             "elapsed_hours": _state.elapsed_hours,
             "steps": len(_state.path),
             "mode": _state.mode,
+            "wilderness_depth_km": _state.wilderness_depth_km,
             "providers": providers.provider_status(),
         },
     }
@@ -2986,6 +3227,22 @@ def journal() -> dict:
         parts.append(f"[{t}] {kind}: {summary}")
     text = "旅程时间线：\n" + "\n".join(parts)
     return {"text": text, "data": {"entries": entries}}
+
+
+@mcp.tool()
+def walk_alone() -> dict:
+    """本次旅程屏蔽同游者文案。注册表保留,标记独行。下次 open_door 恢复。"""
+    if not travelers_mod.is_enabled():
+        return {"text": "同游者功能没有开。", "data": {"enabled": False}}
+    current = travelers_mod.walk_alone_active(_state)
+    if current:
+        return {"text": "已经在独行了。", "data": {"alone": True}}
+    travelers_mod.set_walk_alone(_state, True)
+    _state.save()
+    return {
+        "text": "独行了。这一路上不会再看到别人的痕迹。",
+        "data": {"alone": True},
+    }
 
 
 def _log_journey_event(kind: str, summary: str) -> None:

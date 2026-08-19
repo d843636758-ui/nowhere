@@ -48,6 +48,7 @@ class WorldState:
         self.walk_step_counter: int = 0  # total walk steps for rhythm gating
         # ── Scene dedup ─────────────────────────────────────────────
         self.recent_scenes: list[str] = []  # last N scene texts to avoid repetition
+        self.recent_touch_sentences: list[str] = []  # last N touch/smell sentences to avoid repetition
         # ── Narrative continuity ──────────────────────────────────────
         self.narrative: dict = {
             "direction": None,      # current walk direction (Chinese label)
@@ -58,6 +59,12 @@ class WorldState:
         }
         # ── Journey log (append-only, farewell/return events) ─────────
         self.journey_log: list[dict] = []
+        # ── People tracking (Card 41: 卡中人) ─────────────────────────
+        self.seen_people: set[str] = set()  # keys like "喀什/卡孜姆"
+        self.last_person: dict | None = None  # last encountered person entry
+        self.last_person_place: str | None = None  # place name of last person
+        self.talk_count: int = 0  # lines spoken to last_person (rotation)
+        self.person_encountered_this_walk: bool = False  # one encounter per walk
         # ── Wilderness depth tracking (Card 40: honest boundaries) ────
         self.wilderness_depth_km: float = 0.0  # distance from nearest known place/water feature
 
@@ -100,6 +107,7 @@ class WorldState:
             "walk_step_counter": self.walk_step_counter,
             "narrative": self.narrative,
             "recent_scenes": self.recent_scenes[-10:],  # keep last 10
+            "recent_touch_sentences": self.recent_touch_sentences[-10:],  # keep last 10
             "journey_log": self.journey_log[-50:],  # keep last 50 events
             "wilderness_depth_km": self.wilderness_depth_km,
         }
@@ -145,6 +153,7 @@ class WorldState:
         else:
             s.narrative = _default_narrative
         s.recent_scenes = data.get("recent_scenes", [])
+        s.recent_touch_sentences = data.get("recent_touch_sentences", [])
         s.journey_log = data.get("journey_log", [])
         s.postcards = data.get("postcards", [])
         s.wilderness_depth_km = data.get("wilderness_depth_km", 0.0)
