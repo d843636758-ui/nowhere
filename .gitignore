@@ -6,6 +6,9 @@ nowhere/data/grid.npz
 __pycache__/
 *.pyc
 *.pyo
+build/
+dist/
+*.egg-info/
 
 # IDE
 .vscode/

@@ -28,23 +28,41 @@
 
 这是体验最好的方式。AI 直接调用工具，你和 AI 一起"走"。
 
-1. 安装：
+**克隆仓库后**，在 AI 客户端的 MCP 配置里加上（推荐用 [uvx](https://docs.astral.sh/uv/)，装了 [uv](https://docs.astral.sh/uv/) 就有，免装依赖）：
+
+```json
+{
+  "mcpServers": {
+    "nowhere": {
+      "command": "uvx",
+      "args": ["--from", "你的仓库路径", "nowhere", "--web"]
+    }
+  }
+}
+```
+
+或者用 pip 安装后直接跑：
+
 ```bash
 pip install -e ".[dev]"
 ```
 
-2. 在 AI 客户端的 MCP 配置里加上：
 ```json
 {
   "mcpServers": {
     "nowhere": {
       "command": "python",
-      "args": ["-m", "nowhere.server"],
+      "args": ["-m", "nowhere.server", "--web"],
       "cwd": "你的仓库路径"
     }
   }
 }
 ```
+
+> `--web` 会自动选一个空闲端口启动网页旁观者，启动后 URL 会通过 MCP 协议回传给 AI，AI 会告诉你浏览器该打开哪个地址。
+> 想固定端口就用 `--web 8080`。
+>
+> 包发布到 PyPI 后，可以直接 `uvx nowhere-mcp --web`，无需克隆。
 
 3. 然后跟 AI 说：
 - "开门" — 随机降落到地球上某个地方
@@ -220,8 +238,8 @@ asyncio.run(main())
 git clone <repo-url>
 cd nowhere
 pip install -e ".[dev]"
-python -m nowhere.playground        # 试玩
-python -m nowhere.server --web 8080 # web + API
+python -m nowhere.playground     # 试玩
+python -m nowhere.server --web   # MCP + web + API（自动选端口）
 ```
 
 1 度分辨率地形网格（`grid_tiny.npz`）和场景/电台/知识库等离线数据已随仓库分发。断网完全可用——地形、天空、时间、地名全在本地。在线才用的：天气、电台 API、iNaturalist 生物遇见。
