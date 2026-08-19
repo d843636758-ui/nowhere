@@ -1743,6 +1743,18 @@ _TOUCH_BY_SURFACE: dict[str, list[str]] = {
     ],
 }
 
+# Card 50: cold touch variants (used when cold > 5)
+_COLD_TOUCH_VARIANTS: list[str] = [
+    "手指是麻的，你搓了搓",
+    "指尖碰了一下金属，粘住了似的",
+    "手背的皮肤裂了一道口子",
+    "你把手缩进袖子里，还是冷",
+    "耳朵尖冻得发疼",
+    "鼻尖是凉的，吸进去的气也是凉的",
+    "你的手指弯起来费劲",
+    "口袋里摸到什么，手已经没知觉了",
+]
+
 
 def _season(month: int, lat: float) -> str:
     """Get season name from month and latitude. Northern hemisphere default, southern flipped."""

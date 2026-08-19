@@ -1,0 +1,32 @@
+{
+  "南极磷虾": {
+    "in_index": true,
+    "in_localcolor": false,
+    "in_humanities": false,
+    "is_phantom": true
+  },
+  "墨西哥湾流": {
+    "in_index": true,
+    "in_localcolor": false,
+    "in_humanities": false,
+    "is_phantom": true
+  },
+  "深海热泉": {
+    "in_index": true,
+    "in_localcolor": false,
+    "in_humanities": false,
+    "is_phantom": true
+  },
+  "珊瑚礁": {
+    "in_index": true,
+    "in_localcolor": false,
+    "in_humanities": false,
+    "is_phantom": true
+  },
+  "黑潮": {
+    "in_index": true,
+    "in_localcolor": false,
+    "in_humanities": false,
+    "is_phantom": true
+  }
+}

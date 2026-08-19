@@ -10,6 +10,7 @@ from nowhere.state import WorldState
 # ── Constants ───────────────────────────────────────────────────────
 _DIST_MIN = 0.05  # 50 meters minimum (card 7: short-distance probing)
 _DIST_MAX = 5.0
+_DIST_MAX_FATIGUED = 3.0  # Card 50: fatigue>6 caps walk distance
 _LAND_SPEED_KMH = 4.0
 _WATER_SPEED_KMH = 1.5
 _SLOPE_SLOW_THRESHOLD_DEG = 20.0
@@ -107,15 +108,18 @@ def step(
     bearing_deg: float | None,
     semantic: str | None,
     dist_km: float,
+    max_dist: float = _DIST_MAX,
 ) -> dict:
     """Execute one walking step and update state.
 
     Returns {"blocked", "reason", "entered_water", "elevation_delta",
              "slope_deg", "dist_km", "new_surface", "climbed"}.
+
+    max_dist: override the maximum distance per step (Card 50: fatigue cap).
     """
     assert state.pos is not None, "state.pos must be set before stepping"
     orig_dist = dist_km
-    dist_km = _clamp_dist(dist_km)
+    dist_km = max(_DIST_MIN, min(max_dist, dist_km))
     clamped = dist_km != orig_dist
     lat, lon = state.pos
 

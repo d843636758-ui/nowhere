@@ -1,18 +1,18 @@
 # Nowhere Health Report
 
-**Generated**: 2026-08-20 02:57
-**Total items**: 57 | **Pass**: 35 | **Fail**: 21 | **Skip**: 1
-**Total time**: 120.1s
+**Generated**: 2026-08-20 05:12
+**Total items**: 57 | **Pass**: 34 | **Fail**: 22 | **Skip**: 1
+**Total time**: 160.1s
 
 ## Summary by Source
 
 | Source | Items | Pass | Fail | Skip | Time |
 |--------|-------|------|------|------|------|
-| geocode | 8 | 1 | 7 | 0 | 34.5s |
-| probe | 36 | 31 | 5 | 0 | 52.0s |
-| alignment | 11 | 2 | 8 | 1 | 0.8s |
-| lqa | 1 | 1 | 0 | 0 | 56.9s |
-| tests | 1 | 0 | 1 | 0 | 120.1s |
+| geocode | 8 | 1 | 7 | 0 | 38.1s |
+| probe | 36 | 31 | 5 | 0 | 61.9s |
+| alignment | 11 | 2 | 8 | 1 | 0.7s |
+| lqa | 1 | 0 | 1 | 0 | 60.2s |
+| tests | 1 | 0 | 1 | 0 | 160.1s |
 
 ## GEOCODE
 
@@ -59,7 +59,7 @@
 | PRB-0b.9 listen(seconds= | ✓ | [Input] 0b.9 listen(seconds=-1) negative: text=听多久？给个数。, error=bad_seconds | - |
 | PRB-0c.1 date line lon w | ✓ | [Polar] 0c.1 date line lon wrap (179.99E -> E 5km): dest_lon=-179.9630, step_lon | terrain.destination uses ((lon+180)%360)-180 |
 | PRB-0c.2 country_code ne | ✓ | [Polar] 0c.2 country_code near ±180 date line: FJ? cc_178=FJ, cc_179.99=FJ, cc_- | country_code_of uses dlon wrapping |
-| PRB-0c.3 walk at lat=85  | ✓ | [Polar] 0c.3 walk at lat=85 near pole: lat=85.017986, blocked=False | lon=0.000000 |
+| PRB-0c.3 walk at lat=85  | ✓ | [Polar] 0c.3 walk at lat=85 near pole: lat=85.000000, blocked=False | lon=0.000000 |
 | PRB-0c.4 country_code_of | ✓ | [Polar] 0c.4 country_code_of(South Pole): cc=AR | nearest city to -90,0 is probably in southern hemisphere |
 | PRB-0c.5 food_items(None | ✓ | [Polar] 0c.5 food_items(None) no crash: type=list, len=0 | - |
 | PRB-0c.6 places.nearby(l | ✓ | [Polar] 0c.6 places.nearby(lat=85) cos->0: DB issue (not code bug): OperationalE | places.db missing or malformed in test env |
@@ -80,7 +80,7 @@
 | PRB-4.2 food_by_country  | ✗ | [Data] 4.2 food_by_country zh='' entries: 574 empty zh out of 765 total | sample: [{'country': 'HU', 'en': 'paprikash', 'desc': '鸡肉在红椒粉奶油酱中炖至酥烂，酱汁浓郁红亮，拌面团 |
 | PRB-5.1 save→load roundt | ✓ | [State] 5.1 save→load roundtrip: 0 mismatches | all fields match |
 | PRB-5.2 corrupted journe | ✓ | [State] 5.2 corrupted journey.json → no crash: load() returned None | wrote garbage, load() should return None |
-| PRB-5b.1 postcard: same  | ✓ | [Idempotency] 5b.1 postcard: same text twice: duplicate billing; ids=100,101; sa | card count=2 |
+| PRB-5b.1 postcard: same  | ✓ | [Idempotency] 5b.1 postcard: same text twice: duplicate billing; ids=101,102; sa | card count=2 |
 | PRB-5b.2 mark: same name | ✓ | [Idempotency] 5b.2 mark: same name twice: reasonable rejection | r1_err=None, r2_err=duplicate |
 | PRB-5b.3 open_door: same | ✓ | [Idempotency] 5b.3 open_door: same dest twice: idempotent (resumed journey); res | pos1=(39.9, 116.4), pos2=(39.9, 116.4) |
 | PRB-5c.1 direction vocab | ✓ | [Vocabulary] 5c.1 direction vocabulary recognition (30 phrases): 4/30 = 13.3% | recognized: ['北', '南', '东', '西'] |
@@ -142,21 +142,27 @@
 
 | ID | Level | Phenomenon | Reproduction |
 |----|-------|------------|--------------|
-| LQA-RULE | ✓ | 规则层: 108 样本, 0 bug | - |
+| R0001 | ✗ | [S2] 内陆 biome (city) 出现海港词「码头」 | place=惠灵顿, action=land, time=dusk, temp=10.4, biome=city, lat=-41.29 |
+
+### LQA Failures Detail
+
+- **R0001**: [S2] 内陆 biome (city) 出现海港词「码头」
+  - Reproduction: `place=惠灵顿, action=land, time=dusk, temp=10.4, biome=city, lat=-41.29`
+  - Detail: 场景过滤未覆盖内陆情况
 
 ## TESTS
 
 | ID | Level | Phenomenon | Reproduction |
 |----|-------|------------|--------------|
-| TEST-TIMEOUT | ✗ | pytest 超时 (>120s) | python -m pytest nowhere/tests -q |
+| TEST-TIMEOUT | ✗ | pytest 超时 (>160s) | python -m pytest nowhere/tests -q |
 
 ### TESTS Failures Detail
 
-- **TEST-TIMEOUT**: pytest 超时 (>120s)
+- **TEST-TIMEOUT**: pytest 超时 (>160s)
   - Reproduction: `python -m pytest nowhere/tests -q`
 
 ---
 
 ## New Confirmed Bug Types
 
-First run — no previous report to diff.
+No new bug types since last run.

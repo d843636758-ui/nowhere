@@ -292,18 +292,101 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
-## 卡33:通用场景池按 biome 门禁 + 深度扩池 — 立刻可发
+## 卡33:内容管线(构建时转换,不是运行时过滤)— 立刻可发
 
-只许改:nowhere/describe.py、nowhere/hydrology.py、nowhere/data/scene_water_features.txt、nowhere/data/scene_walk_discovery.txt、nowhere/tests/test_describe.py
+只许改:nowhere/describe.py、nowhere/hydrology.py、新建 tools/build_scenes.py、nowhere/data/scenes_src/*.json(源)、nowhere/data/scene_*.txt(产物)、nowhere/tests/test_describe.py、nowhere/tests/test_build_scenes.py(新建)
 
-背景:通用场景文件是"为了方便随便匹配"的重灾区——32 句 water_features 里码头/海运句在内陆苔原渲染出来;walk_discovery 66 句全球共享,重复感的另一半来源(变体池消耗曲线见卡24 量化)。
+**理论依据(Game Developer Magazine 2004, Noel Llopis, MechAssault 内容管线):问题在构建时解决,不在运行时解决。运行时不过滤——过滤在构建时就做完了。20 年的行业答案。**
 
-1. **句级 biome 标注**:scene_water_features.txt 每句行首加 tag(#河 #湖 #码头 #海),渲染层按 feature type + 距海(hydrology 数据有 distance_km;拿不到就用 terrain.surface 探 10km 内有无水_ocean)过滤——内陆永远不进 #码头 #海 句。tag 解析进 _load_scenes(向后兼容:无 tag 句算 #任意)。
-2. **hydrology 过滤索引修复**(审计低8):代码注释声称的行号索引与真实文件对不上,_LAKE_IDX={1,6} 删错句——改成按 tag 选句,索引死代码删掉。
-3. **发现池扩容**:scene_walk_discovery.txt 66→130 句,新增句按 biome 分组(#城 #林 #漠 #山 #海 #极),_pick_discovery 按 current biome 过滤(拿不到 biome 用 surface 映射)。新句文案照 WRITING_PROMPT(卡31)声口,每句独立成景,禁模板壳。
-4. test_describe.py:内陆点渲染 water_features 永不含"码头/卸货/船";tag 过滤后各 biome 池 ≥8 句;Discovery 同 biome 连抽 8 次去重率 ≥6/8。
+### 三层架构
 
-验收:新测试绿 + test_hydrology/test_regression 绿。
+```
+scenes_src/*.json(源,人写/AI写,带标注)
+  → tools/build_scenes.py(构建:校验+拆分+写门禁)
+  → scene_*.txt(产物,运行时直接读,零过滤)
+```
+
+### 源格式(scenes_src/)
+
+每类场景一个源文件,**每张卡自带元数据**(谁写的、什么 biome、什么类型):
+```json
+// scenes_src/water.json
+[
+  {"text": "你站在河边。水面在你脚边流,黄的,慢的。",
+   "type": "river", "biomes": ["any"], "author": "hand"},
+  {"text": "你在码头上坐着,脚悬在水面上方。",
+   "type": "dock", "biomes": ["coast", "city"], "author": "hand"},
+  {"text": "水凉得刺骨。",
+   "type": "stream", "biomes": ["any"], "author": "hand"}
+]
+```
+- `type`: river/lake/dock/waterfall/stream/ocean/pond
+- `biomes`: ["any"] 或具体 biome 列表
+- `author`: hand/rewrite/baked(追踪来源,普查用)
+
+### 构建步骤(tools/build_scenes.py)
+
+```bash
+python tools/build_scenes.py          # 全量构建
+python tools/build_scenes.py --check  # 只校验不输出
+```
+
+做的事:
+1. **校验**(fail-fast,UC Irvine 行规:管道里炸,不在游戏里炸):
+   - 每张卡必须有 text/type/biomes 三字段
+   - type 必须在注册表内(river/lake/dock/waterfall/stream/ocean/pond)
+   - biomes 必须在注册表内(tundra/desert/coast/mountain/rainforest/grassland/city/any)
+   - 禁词扫描(很/非常/十分/巨大/美丽)
+   - 空泛词扫描(一些/很多/仿佛/好像)
+   - 重复检测(同 type 内文本去重)
+2. **拆分**(按 type 分产物文件):
+   - `scene_water_river.txt` ← 所有 type=river 且 biomes 含 any 或该 biome 的卡
+   - `scene_water_dock.txt` ← type=dock 的卡(构建时只写 coast/city 可用的,其他 biome 的产物里根本不存在这张卡)
+   - 每个 biome 的产物文件是独立的:`scene_water_tundra.txt`(只含 tundra 可用的)、`scene_water_coast.txt`(含 coast 可用的,包括 dock)——**运行时按 biome 直接读自己的文件,不需要判断**
+3. **门禁写入产物**(不是运行时算):
+   - `scene_water_tundra.txt` 里永远不会有码头句——因为构建时就没写进去
+   - `scene_water_coast.txt` 里有码头句——因为构建时写了
+   - **运行时零过滤:读文件,就是对的**
+
+### 运行时(describe.py 改动)
+
+```python
+# 之前(运行时过滤,补丁):
+# pool = _load_scenes("water_features")
+# filtered = [s for s, t in zip(pool, tags_list) if ...]
+
+# 之后(构建时产物,零过滤):
+pool = _load_scenes(f"water_{biome}")  # biome 在调用时已知
+```
+
+`_load_scenes` 读产物文件,不做任何过滤。`_BIOME_TAGS_CACHE`/`_strip_biome_tag`/`_BIOME_COMPAT`/`_INLAND_EXCLUDE_TAGS`/`_LAKE_IDX` **全删**。
+
+### 迁移(现有数据)
+
+现有 scene_water_features.txt 的 32 句 + scene_walk_discovery.txt 的 27 句 → 迁移脚本一次性转成 scenes_src/ 的 JSON(每张卡补 type/biomes/author 标注,人工过一遍标注对不对)。**迁移是构建步骤的一部分,不是运行时的事。**
+
+### 测试
+
+test_build_scenes.py:
+- 缺字段的卡被校验拦下
+- 禁词卡被拦下
+- 构建产物:苔原文件不含码头,海岸文件含码头
+- 同 type 内重复文本被拦下
+- 产物文件数量与源数据一致
+
+test_describe.py:
+- 苔原渲染 water 永远不含码头/卸货(结构性保证)
+- 海岸渲染 water 可含码头
+- 补丁代码(_BIOME_TAGS_CACHE 等)全删后测试仍绿
+
+### 验收
+
+- 构建脚本跑通,产物文件生成
+- 苔原 50 次渲染零码头泄漏(结构性保证)
+- 新增一张卡:改 scenes_src/water.json → 跑 build → 产物里出现 → 运行时读到。**加卡不碰代码,只碰数据。**
+- 补丁代码全删
+
+**这才是"先分再合"的真正意思:分在构建时(数据决定),合在运行时(直接读)。**
 
 ---
 
@@ -735,6 +818,79 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 5. test_journey_state.py:各转移合法/非法;BLIND 时 humanities 不出现;ERRAND 时意外概率降;FAREWELL→LANDING 强制经 establish;状态序列化往返。
 
 验收:新测试绿;状态机转移表文档化(类 docstring 里画 ASCII 图);盲开+差事+荒深三状态共存时行为可预测。
+
+---
+
+## 卡50:身体的重量(能动·会变·不可逆·阻力)— 北极星,最后做
+
+只许改:nowhere/server.py、nowhere/state.py、nowhere/walk.py、nowhere/describe.py、新建 nowhere/tests/test_body.py(新建)
+
+**设计公理(测试机原话,不许偏离)**:"能动、会变。日记里的'他'换成'我'。差的不是更多感官,是一次真正的、回不了头的选择。不做生存游戏,不加血条体力条——让诗意有重量。"
+
+### 一、能动(小目的,主动想的)
+
+不是任务系统,是**日常的小念头**——它不是世界给的,是"我"自己冒出来的:
+
+1. **念头池**(state.whim,序列化,一旅程同时最多一个):
+   - "我想找到昨天那个电台。"(listen 换台后旧台信号变弱时 15% 冒出)
+   - "我饿了。"(当地饭点+上一餐>6h 模拟时间时,walk 文本带一句)
+   - "我想看看这条江往哪去。"(在河边连走 3 步同方向时)
+   - "我想找个地方躲雨。"(precip=rain 且身上没遮挡时)
+   - "我想回去看看。"(离开某地>50km 且该地痕迹链有进展时)
+2. 念头不是指令,是**倾向**——文本里自然带出("你发现自己一直在想那个电台"),walk_to 相关方向时距离感打折("不算远,你想去"),不相关方向时正常。完成念头(找到电台/吃到饭/躲了雨)→ 一句满足(变体池,不煽情),whim 清空。
+3. **没念头时不硬造**——whim 为空超过 5 步才允许冒新的,冒不出就安静。
+
+### 二、会变(后果,每个感官配"然后呢")
+
+**原则:感官不只是描述,感官改变下一步。**
+
+1. **饿**(state.hunger,0-10,模拟时间每小时+0.5,吃到饭清零):
+   - hunger>5:walk 文本带身体("胃在提醒你,它先于脑子想吃了"),美食卡权重×2(和饭点叠乘)
+   - hunger>8:walk 速度隐含变慢(同样 2km 文本里说"走得慢了"),不问旅者同不同意——**身体比人先知道**
+   - 吃到饭:localcolor 美食卡触发时 hunger 清零,文本带一句实的("吃完,手不抖了")
+2. **冷**(state.cold,0-10, env temp<5°C 且 wait/walk 在户外每小时+1,>15°C 每小时-2):
+   - cold>5:文本带("手指有点不听使唤"),touch 卡池换冷感句
+   - cold>8:建议进建筑/找遮挡(不强制), wait 在户外时 cold 加速
+3. **淋湿**(state.wet,bool, precip=rain 且在户外 walk 2 步后 wet=True):
+   - wet=True:文本带("鞋里能挤出水了"),cold 加速×2,进建筑 wait 1h 后 wet=False
+   - **湿+冷>8:失温警告**("你得找个地方把自己弄干,现在")——不强制,但文本紧迫
+4. **累**(state.fatigue,0-10,连续 walk 每小时+1,wait 每小时-2):
+   - fatigue>6:文本带("腿在提醒你,它们不是你的"),walk 距离上限隐含降(5km→3km,文案说"走不远了,不是不想,是腿不让")
+   - fatigue>9:必须 wait(强制休息 1h,文本:"你坐下来了。不是你决定的,是身体决定的。")
+5. **所有后果都是渐进的、可逆的、不惩罚的**——饿/冷/湿/累都是"世界在改你",改了可以改回来,但**改的过程要时间**——这就是重量。
+
+### 三、不可逆(有些东西丢了就是丢了)
+
+1. **souvenir 丢**:walk 时 1% 概率(湿/累状态时 3%)souvenir 丢失("你摸了摸口袋,车票不见了。什么时候掉的,你不知道。")——不找回来,placememory 记一笔("你在{place}丢过{name}")。
+2. **错过节日**:节日窗口过了就是过了(卡11 已有),痕迹链记"你到的时候,地上还有彩纸"——**遗憾合法化**。
+3. **continue 的限制**(拍板项):continue_journey 恢复旅程,但**不恢复 whim/hunger/cold/wet/fatigue**——身体状态每天重置("睡了一觉,身体是你的了"),只有位置/记忆/收藏连续。**记忆是连续的,身体是每天的。**
+
+### 四、阻力(世界不是橡皮泥)
+
+1. walk_to 已有"太远了走不到"(221km),保留——这是好的阻力。
+2. **新阻力:天气挡路**(precip=storm 且 walk 在户外):"雨太大了,你走不了。找地方躲,或者等。"(不强制,但文本明确)。风暴过后 walk 正常,文本带"雨停了,你接着走"。
+3. **新阻力:地形挡路**(已有 cliff,扩展):坡度>30° 且 fatigue>6:"这个坡,你现在上不去。歇够了再来,或者绕。"——身体状态和地形联动。
+4. **新阻力:时间挡路**(深夜 0-5 点且 biome=city):大部分店关了,美食卡不出("这个点,只有便利店还亮着")——城市的作息是阻力。
+
+### 测试
+
+test_body.py:
+- whim 冒出/完成/清空;5 步内不重复冒
+- hunger 渐进(时间+)/吃饭清零/文本在 hunger>5 时出现
+- cold 渐进/回暖降/湿加速/失温警告在 wet+cold>8
+- fatigue 渐进/休息降/高 fatigue 限速/强制休息在 9
+- souvenir 丢失(mock rng)/placememory 记录
+- 风暴挡路/深夜店关/fatigue+陡坡挡路
+- continue 后 whim/hunger/cold/wet/fatigue 重置,位置/收藏保留
+
+### 边界(不许越过)
+
+- 不加血条/体力条/饥饿度数字显示——状态是隐式的,只在文本里体现
+- 不惩罚选择——饿/冷/湿/累都是"世界在改你",不是"你做错了"
+- 不强制行为——除了 fatigue>9 必须歇,其他都是建议,旅者可以硬扛(硬扛有硬扛的文本)
+- 诗意优先——后果文本照 WRITING_PROMPT,禁"你的饥饿度是 7"式系统腔
+
+验收:新测试绿;一段含饿+冷+累+风暴的旅程贴报告,旅者能感到"身体在说话,而且说的有用"。
 
 ---
 

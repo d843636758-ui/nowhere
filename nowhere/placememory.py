@@ -417,3 +417,27 @@ def get_trace_text(place: str) -> str | None:
 def trace_stages() -> dict:
     """Return all trace stage data (for inspection/testing)."""
     return _load("trace_stages.json")
+
+
+# ── Card 50: Lost souvenirs (不可逆) ────────────────────────────────
+
+_LOST_SOUVENIRS_CAP = 50
+
+
+def record_lost_souvenir(name: str, place: str) -> None:
+    """Record a lost souvenir. Card 50: some things lost are lost."""
+    from datetime import datetime, timezone
+    data = _load("lost_souvenirs.json")
+    items = data.get("items", [])
+    items.append({
+        "name": name,
+        "place": place,
+        "lost_at": datetime.now(timezone.utc).isoformat(),
+    })
+    data["items"] = items[-_LOST_SOUVENIRS_CAP:]
+    _dump("lost_souvenirs.json", data)
+
+
+def lost_souvenirs() -> list[dict]:
+    """Return all lost souvenirs (for inspection/testing)."""
+    return list(reversed(_load("lost_souvenirs.json").get("items", [])))

@@ -1,0 +1,98 @@
+[
+  {
+    "draw": 1,
+    "category": "痕迹",
+    "key": "拉普兰/痕迹/1",
+    "text_preview": "冰酒店的墙,每年重盖,春天还给河。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 2,
+    "category": "物产",
+    "key": "拉普兰/物产/0",
+    "text_preview": "云莓是橙色的,长在沼泽里,北极的蜜。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 3,
+    "category": "声音",
+    "key": "拉普兰/声音/0",
+    "text_preview": "雪橇铃在雪原上,清脆,传得远。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 4,
+    "category": "声音",
+    "key": "拉普兰/声音/1",
+    "text_preview": "极光不出声,但看着它,你会以为自己听见了。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 5,
+    "category": "节律",
+    "key": "拉普兰/节律/0",
+    "text_preview": "极夜的正午,蓝色的光,叫 kaamos。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 6,
+    "category": "节律",
+    "key": "拉普兰/节律/1",
+    "text_preview": "极光出来的时候,全村都出来看。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 7,
+    "category": "痕迹",
+    "key": "拉普兰/痕迹/0",
+    "text_preview": "萨米人的帐篷尖,立在林子边上。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 8,
+    "category": "物产",
+    "key": "拉普兰/物产/1",
+    "text_preview": "驯鹿肉是这里的饭,烟熏的,挂了一冬。",
+    "handwritten": true,
+    "baked": false
+  },
+  {
+    "draw": 9,
+    "category": "植被",
+    "key": "拉普兰/烘焙植被/9",
+    "text_preview": "路边最多的是蝶须,本地人看都不看一眼。",
+    "handwritten": false,
+    "baked": true
+  },
+  {
+    "draw": 10,
+    "category": "植被",
+    "key": "拉普兰/烘焙植被/1",
+    "text_preview": "路边最多的是云莓,本地人看都不看一眼。",
+    "handwritten": false,
+    "baked": true
+  },
+  {
+    "draw": 11,
+    "category": "植被",
+    "key": "拉普兰/烘焙植被/8",
+    "text_preview": "高山天栌,在这里长了几千年,比任何建筑都老。",
+    "handwritten": false,
+    "baked": true
+  },
+  {
+    "draw": 12,
+    "category": "植被",
+    "key": "拉普兰/烘焙植被/6",
+    "text_preview": "这一带多毛果一枝黄花,是这里的原住民。",
+    "handwritten": false,
+    "baked": true
+  }
+]

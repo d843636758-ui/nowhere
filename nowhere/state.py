@@ -81,6 +81,14 @@ class WorldState:
         self.drift_seen: list[str] = []  # seen drift card texts this journey
         # ── Card 20: odometer ──────────────────────────────────────────
         # (total_distance_km lives in placememory, global across journeys)
+        # ── Card 50: body state (能动·会变·不可逆·阻力) ───────────────
+        self.whim: str | None = None  # active small desire (max 1 per journey)
+        self.whim_steps_since: int = 999  # steps since last whim (999 = allow new)
+        self.hunger: float = 0.0  # 0-10, +0.5/hour sim time, clear on eat
+        self.cold: float = 0.0  # 0-10, +1/hour when temp<5°C, -2/hour when >15°C
+        self.wet: bool = False  # True after 2 steps in rain outdoors
+        self.wet_rain_steps: int = 0  # counter for rain exposure
+        self.fatigue: float = 0.0  # 0-10, +1/hour walk, -2/hour wait
 
     def now(self) -> datetime | None:
         """Return the current simulated UTC time: landed_at + elapsed_hours."""
@@ -137,6 +145,14 @@ class WorldState:
             "blind_clues": self.blind_clues,
             "door_key": self.door_key,
             "drift_seen": self.drift_seen,
+            # Card 50: body state
+            "whim": self.whim,
+            "whim_steps_since": self.whim_steps_since,
+            "hunger": self.hunger,
+            "cold": self.cold,
+            "wet": self.wet,
+            "wet_rain_steps": self.wet_rain_steps,
+            "fatigue": self.fatigue,
         }
 
     @classmethod
@@ -196,6 +212,14 @@ class WorldState:
         s.blind_clues = data.get("blind_clues", 0)
         s.door_key = data.get("door_key")
         s.drift_seen = data.get("drift_seen", [])
+        # Card 50: body state
+        s.whim = data.get("whim")
+        s.whim_steps_since = data.get("whim_steps_since", 999)
+        s.hunger = data.get("hunger", 0.0)
+        s.cold = data.get("cold", 0.0)
+        s.wet = data.get("wet", False)
+        s.wet_rain_steps = data.get("wet_rain_steps", 0)
+        s.fatigue = data.get("fatigue", 0.0)
         s.intent = data.get("intent")
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
@@ -246,3 +270,17 @@ class WorldState:
         """Record a visit to a place within this journey. Returns visit number."""
         self.visit_counts[place] = self.visit_counts.get(place, 0) + 1
         return self.visit_counts[place]
+
+    def reset_body_state(self) -> None:
+        """Reset body state on continue_journey.
+
+        Card 50: '睡了一觉,身体是你的了'.
+        Memory/position/collection are continuous; body resets daily.
+        """
+        self.whim = None
+        self.whim_steps_since = 999
+        self.hunger = 0.0
+        self.cold = 0.0
+        self.wet = False
+        self.wet_rain_steps = 0
+        self.fatigue = 0.0

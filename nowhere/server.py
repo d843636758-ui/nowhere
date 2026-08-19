@@ -2003,6 +2003,8 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         if saved and saved.pos is not None:
             _state = saved
             restored = True
+            # Card 50: reset body state on continue ("睡了一觉,身体是你的了")
+            _state.reset_body_state()
             global _postcard_counter
             _postcard_counter = max((c.get("id", 0) for c in _state.postcards), default=0)
             lat, lon = _state.pos
@@ -2247,13 +2249,26 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         sections[0] = f"又来了——第 {visit_no} 次来{place_name}。" + establish
 
     # ── 本地特色：localcolor 优先 ─────────────────────────────────
+    # Card 50: late-night (0-5am) city — food cards don't appear
+    _late_night_city = (local_hour is not None and 0 <= local_hour < 5
+                        and _state.biome == "city")
     local_card = localcolor.draw(place_name, _state.seen_cards, _rng,
                                  local_hour=local_hour, country_code=cc, intent=_state.intent,
                                  lat=lat, lon=lon)
     if local_card:
-        _state.seen_cards.add(local_card["key"])
-        placememory.save_seen_cards(place_name, _state.seen_cards)
-        sections.append(local_card["text"])
+        # Card 50: suppress food cards at late night in city
+        _is_food = local_card.get("category") == "美食" or "/美食/" in local_card.get("key", "")
+        if _late_night_city and _is_food:
+            pass  # don't show food card, don't mark as seen
+        else:
+            _state.seen_cards.add(local_card["key"])
+            placememory.save_seen_cards(place_name, _state.seen_cards)
+            sections.append(local_card["text"])
+            # Card 50: food card clears hunger
+            if _is_food and _state.hunger > 0:
+                _state.hunger = 0.0
+                _try_complete_whim("eat", _rng)
+                sections.append(_body_text_for_food_clear(_rng))
         # ── Card 43: flora notebook hook ────────────────────────────
         try:
             if "/植被/" in local_card.get("key", ""):
@@ -2398,6 +2413,341 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     return {"text": prose, "data": return_data}
 
 
+# =====================================================================
+# Card 50: 身体的重量 — body state helpers
+# =====================================================================
+
+# ── Whim trigger conditions ─────────────────────────────────────────
+
+_WHIM_POOL: list[dict] = [
+    {
+        "id": "radio_miss",
+        "text": "你发现自己一直在想那个电台。",
+        "condition": "listen换台后旧台信号变弱",
+    },
+    {
+        "id": "hungry",
+        "text": "胃在提醒你,它先于脑子想吃了。",
+        "condition": "当地饭点+上一餐>6h",
+    },
+    {
+        "id": "river_follow",
+        "text": "你想看看这条江往哪去。",
+        "condition": "河边连走3步同方向",
+    },
+    {
+        "id": "shelter",
+        "text": "你想找个地方躲雨。",
+        "condition": "precip=rain且没遮挡",
+    },
+    {
+        "id": "revisit",
+        "text": "你想回去看看。",
+        "condition": "离开某地>50km且痕迹链有进展",
+    },
+]
+
+_WHIM_SATISFACTION: list[str] = [
+    "你做到了。没什么特别的,但你知道。",
+    "这件事完成了。你继续走。",
+    "你想做的事做了。脚下的路还在。",
+    "满足感来得轻,走得也快。你接着走。",
+]
+
+
+def _try_emerge_whim(env: dict, rng: random.Random) -> str | None:
+    """Try to emerge a whim based on current conditions.
+
+    Card 50: max 1 per journey, only after 5 steps quiet.
+    Returns whim text or None.
+    """
+    if _state.whim is not None:
+        return None  # already have one
+    if _state.whim_steps_since < 5:
+        return None  # too soon
+
+    weather = env.get("weather", {})
+    precip = weather.get("precip", "none")
+
+    candidates: list[dict] = []
+
+    # "想躲雨" — precip=rain, no shelter (outdoor)
+    if precip == "rain" and _state.mode == "land":
+        candidates.append(_WHIM_POOL[3])
+
+    # "想看江往哪去" — near river, walked same direction 3+ steps
+    water_features = env.get("water_features", [])
+    has_river = any(f.get("type") == "river" for f in water_features)
+    if has_river and _state.narrative.get("distance_walked", 0) > 5000:
+        candidates.append(_WHIM_POOL[2])
+
+    # "饿了" — hunger>3 (simplified: sim time >6h since landing)
+    if _state.hunger > 3.0:
+        candidates.append(_WHIM_POOL[1])
+
+    if not candidates:
+        return None
+
+    # 15% chance to emerge
+    if rng.random() > 0.15:
+        return None
+
+    whim = rng.choice(candidates)
+    _state.whim = whim["id"]
+    _state.whim_steps_since = 0
+    return whim["text"]
+
+
+def _try_complete_whim(action: str, rng: random.Random) -> str | None:
+    """Try to complete the current whim based on action.
+
+    Returns satisfaction text or None.
+    """
+    if _state.whim is None:
+        return None
+
+    completed = False
+    if _state.whim == "hungry" and action == "eat":
+        completed = True
+    elif _state.whim == "shelter" and action == "wait_indoors":
+        completed = True
+    elif _state.whim == "radio_miss" and action == "radio_found":
+        completed = True
+    elif _state.whim == "river_follow" and action == "river_continue":
+        # River following is ongoing, complete after enough steps
+        completed = True
+    elif _state.whim == "revisit" and action == "revisit_arrived":
+        completed = True
+
+    if completed:
+        _state.whim = None
+        _state.whim_steps_since = 999
+        return rng.choice(_WHIM_SATISFACTION)
+    return None
+
+
+# ── Body state text injection ───────────────────────────────────────
+
+_HUNGER_TEXTS: list[str] = [
+    "胃在提醒你,它先于脑子想吃了。",
+    "肚子里空空的,走路的节奏乱了。",
+    "你发现自己一直在想吃的。",
+]
+
+_HUNGER_SLOW_TEXTS: list[str] = [
+    "走得慢了。不是不想走,是腿不听话。",
+    "脚步沉了。身体在抗议。",
+    "你走得比刚才慢。胃在拽你。",
+]
+
+_COLD_TEXTS: list[str] = [
+    "手指有点不听使唤。",
+    "指尖是麻的。你搓了搓手。",
+    "冷从骨头里往外渗。",
+]
+
+_WET_TEXTS: list[str] = [
+    "鞋里能挤出水了。",
+    "衣服贴在身上,重了。",
+    "每走一步,袜子吱一声。",
+]
+
+_HYPOTHERmia_TEXTS: list[str] = [
+    "你得找个地方把自己弄干,现在。",
+    "牙齿在打架。你控制不住。",
+    "你的嘴唇是紫的。你不知道,但手摸得到。",
+]
+
+_FATIGUE_TEXTS: list[str] = [
+    "腿在提醒你,它们不是你的。",
+    "膝盖在响。每一步都响。",
+    "你发现自己在数步数。",
+]
+
+_FATIGUE_SLOW_TEXTS: list[str] = [
+    "走不远了,不是不想,是腿不让。",
+    "你的步子短了。身体在收。",
+    "你试着加快,腿不答应。",
+]
+
+_FATIGUE_FORCE_REST_TEXTS: list[str] = [
+    "你坐下来了。不是你决定的,是身体决定的。",
+    "你的腿不动了。你站在原地,然后蹲了下来。",
+    "身体赢了。你靠着什么坐下了。",
+]
+
+_EAT_CLEAR_TEXTS: list[str] = [
+    "吃完,手不抖了。",
+    "胃满了。走路的节奏回来了。",
+    "食物下去,力气从胃里往外走。",
+]
+
+_SOUPY_LOSS_TEXTS: list[str] = [
+    "你摸了摸口袋,{name}不见了。什么时候掉的,你不知道。",
+    "口袋里少了什么——{name}。你不知道掉在哪了。",
+    "{name}没了。你翻了一遍口袋,只有风。",
+]
+
+
+def _update_body_state_walk(
+    env: dict,
+    elapsed_hours: float,
+    rng: random.Random,
+) -> list[str]:
+    """Update body state after a walk step. Returns list of body text lines.
+
+    Card 50: hunger/cold/wet/fatigue progression.
+    """
+    texts: list[str] = []
+    weather = env.get("weather", {})
+    temp = weather.get("temp_c", 15.0)
+    precip = weather.get("precip", "none")
+    is_outdoor = _state.mode == "land"  # simplified: land = outdoor
+
+    # ── Hunger: +0.5/hour ────────────────────────────────────────────
+    _state.hunger = min(10.0, _state.hunger + 0.5 * elapsed_hours)
+    if _state.hunger > 8.0:
+        if rng.random() < 0.4:
+            texts.append(rng.choice(_HUNGER_SLOW_TEXTS))
+    elif _state.hunger > 5.0:
+        if rng.random() < 0.3:
+            texts.append(rng.choice(_HUNGER_TEXTS))
+
+    # ── Cold: +1/hour when temp<5°C outdoors, -2/hour when >15°C ────
+    if is_outdoor:
+        if temp < 5.0:
+            rate = 1.0
+            if _state.wet:
+                rate *= 2.0  # wet accelerates cold
+            _state.cold = min(10.0, _state.cold + rate * elapsed_hours)
+        elif temp > 15.0:
+            _state.cold = max(0.0, _state.cold - 2.0 * elapsed_hours)
+
+    if _state.cold > 8.0:
+        if rng.random() < 0.4:
+            texts.append(rng.choice(_HYPOTHERmia_TEXTS))
+    elif _state.cold > 5.0:
+        if rng.random() < 0.3:
+            texts.append(rng.choice(_COLD_TEXTS))
+
+    # ── Wet: precip=rain + outdoor walk 2 steps ──────────────────────
+    if precip == "rain" and is_outdoor:
+        _state.wet_rain_steps += 1
+        if _state.wet_rain_steps >= 2 and not _state.wet:
+            _state.wet = True
+            if rng.random() < 0.5:
+                texts.append(rng.choice(_WET_TEXTS))
+    elif _state.wet and precip != "rain":
+        # Slow dry-off when not raining (building wait handles faster)
+        pass  # wet stays until building wait
+
+    if _state.wet and rng.random() < 0.2:
+        texts.append(rng.choice(_WET_TEXTS))
+
+    # ── Fatigue: +1/hour continuous walk ──────────────────────────────
+    _state.fatigue = min(10.0, _state.fatigue + 1.0 * elapsed_hours)
+
+    if _state.fatigue > 9.0:
+        # Forced rest — will be handled in walk_impl
+        texts.append(rng.choice(_FATIGUE_FORCE_REST_TEXTS))
+    elif _state.fatigue > 6.0:
+        if rng.random() < 0.3:
+            texts.append(rng.choice(_FATIGUE_SLOW_TEXTS))
+        elif rng.random() < 0.2:
+            texts.append(rng.choice(_FATIGUE_TEXTS))
+
+    return texts
+
+
+def _update_body_state_wait(
+    elapsed_hours: float,
+    is_indoor: bool,
+    rng: random.Random,
+) -> list[str]:
+    """Update body state during wait. Returns list of body text lines.
+
+    Card 50: fatigue recovers during wait; wet clears indoors.
+    """
+    texts: list[str] = []
+
+    # ── Fatigue: -2/hour wait ────────────────────────────────────────
+    _state.fatigue = max(0.0, _state.fatigue - 2.0 * elapsed_hours)
+
+    # ── Wet: clears after 1h indoors ─────────────────────────────────
+    if is_indoor and _state.wet and elapsed_hours >= 1.0:
+        _state.wet = False
+        _state.wet_rain_steps = 0
+        texts.append("衣服干了。你活动了一下手指。")
+
+    # ── Hunger: still increases during wait ──────────────────────────
+    _state.hunger = min(10.0, _state.hunger + 0.5 * elapsed_hours)
+
+    return texts
+
+
+def _try_souvenir_loss(rng: random.Random) -> str | None:
+    """1% chance to lose souvenir (3% when wet/fatigued).
+
+    Card 50: some things lost are lost.
+    """
+    if _state.souvenir is None:
+        return None
+
+    chance = 0.01
+    if _state.wet or _state.fatigue > 6.0:
+        chance = 0.03
+
+    if rng.random() > chance:
+        return None
+
+    name = _state.souvenir.get("name", "东西")
+    _state.souvenir = None
+    # Record in placememory
+    try:
+        placememory.record_lost_souvenir(name, _state.place_name or "")
+    except AttributeError:
+        pass  # placememory may not have this function yet
+    return rng.choice(_SOUPY_LOSS_TEXTS).format(name=name)
+
+
+def _check_storm_block(env: dict) -> str | None:
+    """Check if storm blocks walking. Card 50: weather resistance."""
+    weather = env.get("weather", {})
+    precip = weather.get("precip", "none")
+    if precip == "storm" and _state.mode == "land":
+        return "雨太大了,你走不了。找地方躲,或者等。"
+    return None
+
+
+def _check_fatigue_slope_block(slope_deg: float) -> str | None:
+    """Check if fatigue + steep slope blocks walking. Card 50: body+terrain."""
+    if slope_deg > 30.0 and _state.fatigue > 6.0:
+        return "这个坡,你现在上不去。歇够了再来,或者绕。"
+    return None
+
+
+def _check_late_night_shop(env: dict) -> bool:
+    """Check if it's late night in city (0-5am). Card 50: time resistance."""
+    if _state.biome != "city":
+        return False
+    now = _state.now()
+    if now is None:
+        return False
+    from zoneinfo import ZoneInfo
+    tz_name = _tf.timezone_at(lat=_state.pos[0], lng=_state.pos[1]) if _state.pos else None
+    if not tz_name:
+        return False
+    local_hour = now.astimezone(ZoneInfo(tz_name)).hour
+    return 0 <= local_hour < 5
+
+
+def _body_text_for_food_clear(rng: random.Random) -> str:
+    """Text when eating clears hunger. Card 50: food satisfaction."""
+    _state.hunger = 0.0
+    _try_complete_whim("eat", rng)
+    return rng.choice(_EAT_CLEAR_TEXTS)
+
+
 # ── Souvenir: natural pickup ────────────────────────────────────────
 
 _SOUVENIR_TEMPLATES: dict[str, list[dict]] = {
@@ -2498,9 +2848,23 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # Reset per-walk people encounter flag
     _state.person_encountered_this_walk = False
 
+    # ── Card 50: Pre-step body checks ────────────────────────────────
+    # Storm block
+    if _state.last_env:
+        storm_block = _check_storm_block(_state.last_env)
+        if storm_block:
+            return {"text": storm_block, "data": {"error": "storm_block"}}
+
+    # Fatigue >9: forced rest
+    if _state.fatigue > 9.0:
+        forced_text = "你坐下来了。不是你决定的,是身体决定的。你需要歇一歇。"
+        return {"text": forced_text, "data": {"error": "forced_rest", "fatigue": _state.fatigue}}
+
     # ── 1. Parse direction & step ────────────────────────────────────
     bearing, semantic, direction_invalid = _parse_bearing(direction)
-    step_result = walk_mod.step(_state, bearing, semantic, distance_km)
+    # Card 50: fatigue>6 caps distance to 3km
+    _max_dist = walk_mod._DIST_MAX_FATIGUED if _state.fatigue > 6.0 else walk_mod._DIST_MAX
+    step_result = walk_mod.step(_state, bearing, semantic, distance_km, max_dist=_max_dist)
     # NOTE: time accumulation is handled inside walk.step() using actual
     # distance and speed — do NOT add time here (would double-count).
 
@@ -2526,6 +2890,13 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                 "step": step_result,
             },
         }
+
+    # ── 2b. Card 50: fatigue + steep slope block ─────────────────────
+    slope_deg = step_result.get("slope_deg", 0)
+    if slope_deg > 0:
+        fatigue_slope_block = _check_fatigue_slope_block(slope_deg)
+        if fatigue_slope_block:
+            return {"text": fatigue_slope_block, "data": {"error": "fatigue_slope_block", "slope_deg": slope_deg, "fatigue": _state.fatigue}}
 
     # ── 2b. no_gain (uphill on flat terrain) ─────────────────────────
     if step_result.get("no_gain"):
@@ -2670,6 +3041,26 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         _encounter_multiplier = 1.0
         _is_deep_wilderness = False
 
+    # ── 3.8. Card 50: body state update ─────────────────────────────
+    _step_hours = step_result.get("dist_km", 2.0) / 4.0  # approx hours
+    body_texts = _update_body_state_walk(env, _step_hours, _rng)
+    _state.whim_steps_since += 1
+
+    # Try to emerge a whim
+    whim_text = _try_emerge_whim(env, _rng)
+    if whim_text:
+        body_texts.append(whim_text)
+
+    # Inject body texts into sections
+    for bt in body_texts:
+        if bt not in set(_state.recent_scenes):
+            sections.append(bt)
+
+    # Try souvenir loss
+    souvenir_loss_text = _try_souvenir_loss(_rng)
+    if souvenir_loss_text:
+        sections.append(souvenir_loss_text)
+
     # ── 4. message/encounter/wilderness → ACTIONS ────────────────────
 
 
@@ -2744,6 +3135,18 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             t = act.render(ctx)
             if t:
                 sections.append(t)
+
+    # ── Card 50: food card hunger clearing ────────────────────────────
+    # Scan sections added this step for food-related content
+    _food_keywords = {"吃", "饭", "食", "餐", "汤", "面", "肉", "鱼", "菜", "果",
+                      "粥", "饺", "包", "饼", "茶", "酒", "咖啡"}
+    for s in sections:
+        if any(kw in s for kw in _food_keywords):
+            if _state.hunger > 0:
+                _state.hunger = 0.0
+                _try_complete_whim("eat", _rng)
+                sections.append(_body_text_for_food_clear(_rng))
+            break
 
     # ── 5a2. Narrative connector (direction change or every 3rd step)
     direction_label = _bearing_to_label(bearing, semantic)
@@ -3190,6 +3593,8 @@ async def wait_impl(hours: float = 1.0) -> dict:
     start_temp = (prev_env or {}).get("weather", {}).get("temp_c")
     last_reported_temp = start_temp  # track to avoid repeating the same message
     quiet = True  # 留白: 全程缓存命中且世界没变
+    # Card 50: detect if waiting indoors (building/urban and not raining)
+    _is_indoor = _state.biome == "city" and (prev_env or {}).get("weather", {}).get("precip", "none") != "storm"
     remaining_hours = hours
     h = 0
     while remaining_hours > 0:
@@ -3197,6 +3602,12 @@ async def wait_impl(hours: float = 1.0) -> dict:
         _state.elapsed_hours += elapsed_step
         remaining_hours -= elapsed_step
         now = _state.now()
+
+        # Card 50: body state recovery during wait
+        wait_body_texts = _update_body_state_wait(elapsed_step, _is_indoor, _rng)
+        for wbt in wait_body_texts:
+            if wbt not in set(_state.recent_scenes):
+                sections.append(wbt)
         env, env_cached = await _gather_env_cached(lat, lon, now)
         if not env_cached:
             quiet = False
