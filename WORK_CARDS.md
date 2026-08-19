@@ -646,6 +646,59 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 ---
 
+# 架构组(2026-08-20,旋复:"文件太多了能不能做成状态机"→脑:不换架构,做规整;接另一agent搜到的 Storylets/QBN 范式,但取其半)
+
+## 卡47:卡 schema 统一(五套格式归一,卡册的宪法)
+
+只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/encounters.py、nowhere/art.py、新建 nowhere/cards.py;数据文件:全部卡 JSON 原地升级格式(不增删内容)
+
+现状:localcolor 卡是字符串数组/humanities 是 {name,text}/festival 待定/people_seed 另一套/errands 信又是另一套——五套格式四种消费方式,每加一种卡就写一套加载和选择。
+
+统一 schema(cards.py 里一个 Card dataclass):
+```python
+@dataclass
+class Card:
+    id: str            # "{地}/{类}/{i}" 现有 key,不变
+    kind: str          # localcolor | humanities | encounter | festival | people | errand | timeaxis
+    text: str          # 正文
+    conditions: dict   # {place?, biome?, hours?, months?, weekday?, season?, region?} 全可选
+    effect: str | None # 消费方式:"seen"(抽过不再出,卡现状)|"sticky"(节日,可重复)|"evolve"(痕迹链,阶段推进)
+    meta: dict         # kind 特有字段(如 humanities 的 year/name)
+```
+1. cards.py 提供 `load_all()`(把五个数据文件的各自格式映射成 Card 列表)+ `select(pool, ctx, rng, seen)`(条件过滤+选择,复用现有 localcolor.draw 的权重逻辑,含饭点美食加权)。
+2. 各模块改为读 Card 层,不自己解析 JSON——数据文件格式原地升级(就地 migration,不改内容只改壳;升级脚本一次性,产物回写 data/)。
+3. **不新造选择器**:salience 继续管"这一步看哪三张"——cards.py 只管"这一池里谁能出现"。Storylets 的选择是玩家的,salience 的选择是世界的——两条线,别合。
+4. 测试:全部旧测试过;新测试断言五个模块出的卡都能过同一个 validate();卡计数迁移前后一致。
+
+验收:全测试绿;humanities 的 event/festival/people 三类卡走同一个 select() 能正确按条件过滤。
+
+---
+
+## 卡48:walk 动作槽(轻量,把 N 个 if 收成注册表)
+
+只许改:nowhere/server.py、新建 nowhere/actions.py、nowhere/tests/test_actions.py(新建)
+
+现状:walk_impl 里 radio 冷却/encounter/河流/时间轴/意外/同游者脚印/手账埋点……每加一个功能插一段 if,server.py 已 2100 行。
+
+做成动作槽(actions.py):
+```python
+class Action:
+    name: str
+    def should(self, state, env, rng) -> bool: ...
+    def render(self, state, env, rng) -> str | None: ...
+
+ACTIONS: list[Action] = [radio_cool, encounter_check, river_narrative, timeaxis, mishap, cotraveler_footprint, notebook_jot, ...]
+```
+walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.render(...); if t: sections.append(t)`——加新功能=往 ACTIONS 注册,不碰 walk_impl。
+1. 每个现有 if 块原样搬成 Action(行为不变,只搬位置),逐个迁,迁一个跑一遍测试。
+2. **不做事件总线**:不需要 emit/subscribe/异步分发——Action 是同步两步(判断+渲染),pub/sub 带来的调试地狱(return_exceptions 已经够难查了)远大于收益。
+3. 顺序即优先级:节日/纪念日(高) > 时间轴 > 常规遭遇(低),ACTIONS 列表顺序=出卡顺序。
+4. test_actions.py:各 Action 的 should/render 独立可测;顺序敏感的两个(节日+周律)同触发时节日先。
+
+验收:全测试绿;walk_impl 行数减少 ≥30%;新功能(假想的"极光提醒")只需在 actions.py 加 8 行即可注册。
+
+---
+
 ## 卡4:数据接线(索引说谎清零 + 双真相源合并)
 
 只许改:nowhere/localcolor.py、nowhere/humanities.py、nowhere/tests/test_localcolor.py、nowhere/tests/test_humanities.py

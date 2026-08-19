@@ -127,28 +127,28 @@ _VARIANT_POOLS: dict[str, list[str]] = {
 _EMPTY_VARIANTS: dict[str, list[str]] = {
     "flora": [
         "植物册还空着。走走看,路边总有什么在长。",
-        "翻开来是白的。世界那么多植物,还没记下一笔。",
-        "没有一页。等走到有花的地方,再打开。",
+        "植物册翻开来是白的。世界那么多草木,还没记下一笔。",
+        "植物册没有一页。等走到有花的地方,再打开。",
     ],
     "fauna": [
         "动物册空着。林子里有声音,但还没看见影子。",
-        "一页也没有。等遇见什么活的东西再写。",
-        "空白的。世界那么大,总有什么在跑。",
+        "动物册一页也没有。等遇见什么活的东西再写。",
+        "动物册空白的。世界那么大,总有什么在跑。",
     ],
     "radio": [
         "电台一册还空着。世界那么多台。",
-        "没有一页。收音机还没响过。",
-        "空的。等调到一个频率再记。",
+        "电台册没有一页。收音机还没响过。",
+        "电台册空的。等调到一个频率再记。",
     ],
     "water": [
         "水文册空着。还没走到水边。",
-        "一页也没有。等看见水再写。",
-        "空白的。世界那么多河,总有一条在等。",
+        "水文册一页也没有。等看见水再写。",
+        "水文册空白的。世界那么多河,总有一条在等。",
     ],
     "people": [
         "人物册空着。还没遇见谁。",
-        "没有一页。路上应该有人的。",
-        "空的。等遇见人再记。",
+        "人物册没有一页。路上应该有人的。",
+        "人物册空的。等遇见人再记。",
     ],
 }
 
@@ -304,33 +304,35 @@ def record(
     uniques = data.get("uniques", {})
     vol_uniques = uniques.get(volume, [])
 
+    # 回填旧数据中缺失的 _unique 标记
+    if vol_list and "_unique" not in vol_list[0]:
+        _nc: dict[str, int] = {}
+        for e in vol_list:
+            n = e.get("name", "")
+            _nc[n] = _nc.get(n, 0) + 1
+        for e in vol_list:
+            e["_unique"] = _nc.get(e.get("name", ""), 0) <= 1
+
+    # 标记: 这个 name 在当前列表中是否已经出现过
+    name_already_exists = any(e.get("name") == name for e in vol_list)
+    # 如果已存在,把已有的同名条目也标记为非唯一
+    if name_already_exists:
+        for e in vol_list:
+            if e.get("name") == name:
+                e["_unique"] = False
+    entry["_unique"] = not name_already_exists
+
     # 添加新条目
     vol_list.append(entry)
 
-    # FIFO: 超限时丢最旧的非唯一条目
-    if len(vol_list) > _VOLUME_CAP:
-        # 统计每个 name 的出现次数
-        name_counts: dict[str, int] = {}
-        for e in vol_list:
-            n = e.get("name", "")
-            name_counts[n] = name_counts.get(n, 0) + 1
-
-        # 从最旧的开始丢,唯一条目(count=1)搬进 uniques 永不丢
-        new_list: list[dict] = []
-        for e in vol_list:
-            if len(new_list) < _VOLUME_CAP:
-                new_list.append(e)
-            else:
-                # 超限: 看这个条目是否唯一
-                n = e.get("name", "")
-                if name_counts.get(n, 0) <= 1:
-                    # 唯一条目: 保留
-                    new_list.append(e)
-                else:
-                    # 非唯一: 丢弃(不做任何事)
-                    pass
-
-        vol_list = new_list
+    # FIFO: 超限时从最旧的开始丢
+    # 唯一条目(_unique=True)搬进 uniques,非唯一直接丢
+    while len(vol_list) > _VOLUME_CAP:
+        oldest = vol_list[0]
+        if oldest.get("_unique"):
+            vol_uniques.append(vol_list.pop(0))
+        else:
+            vol_list.pop(0)
 
     data[volume] = vol_list
     uniques[volume] = vol_uniques

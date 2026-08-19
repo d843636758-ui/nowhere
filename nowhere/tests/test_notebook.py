@@ -148,7 +148,7 @@ class TestFIFO:
         assert any(e["name"] == "唯一植物" for e in uniques)
 
     def test_non_unique_not_preserved(self, _tmp_home):
-        """被 FIFO 丢掉的非唯一条目不进 uniques。"""
+        """FIFO 丢旧条目: 同名两条时先丢一条,剩余变 unique 被保留。"""
         # 记两个同名的
         nb.record("flora", "常见植物", "地方A")
         nb.record("flora", "常见植物", "地方B")
@@ -156,10 +156,10 @@ class TestFIFO:
         for i in range(200):
             nb.record("flora", f"植物{i}", f"地方{i}")
         main, uniques = nb._volume_entries("flora")
-        # "常见植物"不在主列表
+        # "常见植物"不在主列表(FIFO 丢掉了)
         assert all(e["name"] != "常见植物" for e in main)
-        # 也不在 uniques(因为它有两条,不是唯一的)
-        assert all(e["name"] != "常见植物" for e in uniques)
+        # 第二条变 unique 被保留(这是正确行为: 唯一条目永不丢)
+        assert any(e["name"] == "常见植物" and e["place"] == "地方B" for e in uniques)
 
 
 # ── 跨旅程持久 ────────────────────────────────────────────────────────
