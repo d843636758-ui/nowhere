@@ -304,34 +304,25 @@ def record(
     uniques = data.get("uniques", {})
     vol_uniques = uniques.get(volume, [])
 
-    # 回填旧数据中缺失的 _unique 标记
-    if vol_list and "_unique" not in vol_list[0]:
-        _nc: dict[str, int] = {}
-        for e in vol_list:
-            n = e.get("name", "")
-            _nc[n] = _nc.get(n, 0) + 1
-        for e in vol_list:
-            e["_unique"] = _nc.get(e.get("name", ""), 0) <= 1
-
-    # 标记: 这个 name 在当前列表中是否已经出现过
-    name_already_exists = any(e.get("name") == name for e in vol_list)
-    # 如果已存在,把已有的同名条目也标记为非唯一
-    if name_already_exists:
-        for e in vol_list:
-            if e.get("name") == name:
-                e["_unique"] = False
-    entry["_unique"] = not name_already_exists
-
     # 添加新条目
     vol_list.append(entry)
 
     # FIFO: 超限时从最旧的开始丢
-    # 唯一条目(_unique=True)搬进 uniques,非唯一直接丢
+    # 唯一条目(count=1)搬进 uniques 永不丢,非唯一直接丢
     while len(vol_list) > _VOLUME_CAP:
-        oldest = vol_list[0]
-        if oldest.get("_unique"):
+        # 统计当前列表中每个 name 的出现次数
+        name_counts: dict[str, int] = {}
+        for e in vol_list:
+            n = e.get("name", "")
+            name_counts[n] = name_counts.get(n, 0) + 1
+
+        # 从最旧的(第一个)开始检查
+        oldest_name = vol_list[0].get("name", "")
+        if name_counts.get(oldest_name, 0) <= 1:
+            # 唯一条目: 搬进 uniques
             vol_uniques.append(vol_list.pop(0))
         else:
+            # 非唯一: 直接丢弃
             vol_list.pop(0)
 
     data[volume] = vol_list
