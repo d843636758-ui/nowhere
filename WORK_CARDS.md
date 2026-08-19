@@ -511,15 +511,22 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 
 只许改:nowhere/placememory.py、nowhere/server.py、新建 nowhere/notebook.py、nowhere/tests/test_notebook.py
 
-**五册+字段(记的是"初见",重逢不添笔)**:
+**五册+字段(记的是"初见",重逢不添笔;图鉴描述是手账的灵魂字段)**:
 ```json
-{"flora": [{"name": "云莓", "latin": "Rubus chamaemorus", "place": "拉普兰", "at": "2026-07-17T21:00+00:00", "note": null}],
- "fauna": [...同构, name 用俗名...],
- "radio": [{"name": "CRI Easy FM", "place": "长江,三峡段", "at": "...", "note": "正放着music/news"}],
- "water": [{"name": "长江·武汉段", "place": "...", "at": "...", "note": null}],
- "people": [{"name": "卡孜姆", "place": "喀什", "at": "...", "note": "茶碗在他手里转"}]}
+{"flora": [{"name": "云莓", "latin": "Rubus chamaemorus", "place": "拉普兰", "at": "2026-07-17T21:00+00:00",
+            "first_impression": "指甲盖大,橙色,藏在苔藓底下——蹲下去才看见。摘一颗,酸甜,籽在牙缝里。"}],
+ "fauna": [...同构...],
+ "radio": [{"name": "CRI Easy FM", "place": "长江,三峡段", "at": "...", "first_impression": "后半夜的英语新闻,播音员的声音是热的,像刚倒的茶。"}],
+ "water": [...], "people": [...]}
 ```
-- note 只在那一刻有特殊细节时记(电台当时放什么/那人当时在干什么),没有就 null——**手账不凑字**。
+- **`first_impression`(初见印象,替换原 note 字段):一两条句,只写"初见那一刻"**——当时的天气/光/它在干什么/你的身体那一下。这不是图鉴说明(图鉴说明是 Wikipedia 的事),是**你这册手账为什么记它**。规矩:
+  - 禁百科腔("云莓,蔷薇科,分布于北欧")——这是标本卡,不是手账;
+  - 禁总结("这次遇见很神奇");
+  - 必须带那一刻的一个具体(夜里/雨后/风停了的那一会);
+  - 允许记身体("酸得你眨了一下眼")。
+  - **写不出来的时刻可以只留 null**——强行凑字比空着更坏。但 10 笔里 null 超过 4 笔,说明埋点时机没抓到"初见的现场感",是 bug。
+- **first_impression 怎么来(不许现编)**:记录时机就在各渲染路径出卡的当下,当时 env(天气/时段/季节)就在手里——由渲染层用**当场上下文**生成一句(模板变体池起步,每册 6 句变体,槽位:{name}{天气}{时段}{动作}),不调 LLM。例:flora 池"{}藏在{}底下,蹲下去才看见"/"{},叶子上还挂着{}的雨"。变体池照 WRITING_PROMPT 声口写,随卡34 的普查一起迭代。
+- **notebook() 输出升级**:指定册全列时,每条两行——第一行"云莓——拉普兰,夏天",第二行缩进初见印象原文。**"只有一次的"节尤其要带印象原文**——那一节本来就是手账最重的一页。
 - 记录时机(埋点不改卡逻辑):flora←localcolor.draw 抽中植被/烘焙植被;fauna←encounters life 卡;radio←_get_radio 换台时;water←水文描写触发;people←talk 首次成功。
 - 存储:placememory 层 notebook.json(全局跨旅程,尊重 NOWHERE_HOME),原子写(照 state.py 的 mkstemp 模式)。
 - 上限:每册 200 条 FIFO(丢最旧,但"只有一次的"节永不丢)。
@@ -530,7 +537,7 @@ python -c "import asyncio,sys;sys.stdout.reconfigure(encoding='utf-8');from nowh
 - **只有一次的**(单列一节,这册的灵魂):出现次数=1 的条目跨册合并列——"只遇到过一次的:极光下的电台(拉普兰)/会握手的海獭(阿拉斯加)/那杯(te,伊斯法罕)"。手账最重的一页就是这节。
 - 空册:"电台一册还空着。世界那么多台。"(变体 3,不许说"还没有记录"这种系统腔)
 
-**test_notebook.py**:五册埋点各自触发;初见记/重逢不记;跨旅程持久;FIFO 丢旧但唯一节保留;南半球季节反推正确;空册文案。
+**test_notebook.py**:五册埋点各自触发;初见记/重逢不记;跨旅程持久;FIFO 丢旧但唯一节保留;南半球季节反推正确;空册文案;**first_impression 含当时天气/时段槽位值且非百科腔(断言不含"分布于/学名是"式开头)、10 笔内 null ≤4**。
 
 验收:新测试绿;报告贴一段真实旅程后的 notebook() 全文输出。
 

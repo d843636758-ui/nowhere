@@ -43,6 +43,7 @@ from nowhere import (
     listen as listen_mod,
     localcolor,
     marks as marks_mod,
+    people as people_mod,
     placememory,
     places,
     poster,
@@ -510,8 +511,25 @@ def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
     except Exception:
         return None
 
+    # Synonym mapping: user-facing terms → segment note keywords
+    _SEGMENT_SYNONYMS: dict[str, list[str]] = {
+        "入海口": ["上海", "东营"],
+        "入海": ["上海", "东营"],
+        "河口": ["上海", "东营"],
+        "出海口": ["上海", "东营"],
+        "上游": ["宜宾", "重庆", "兰州", "银川"],
+        "源头": ["宜宾", "重庆"],
+        "三峡": ["三峡", "宜昌"],
+        "下游": ["南京", "九江", "武汉"],
+    }
+
     entries = data.get("entries", [])
     hint_lower = segment_hint.lower() if segment_hint else ""
+
+    # Expand hint via synonyms
+    hint_keywords = [hint_lower] if hint_lower else []
+    if hint_lower in _SEGMENT_SYNONYMS:
+        hint_keywords.extend(_SEGMENT_SYNONYMS[hint_lower])
 
     best = None
     best_score = -1
@@ -524,12 +542,15 @@ def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
         if name not in ename and ename not in name:
             continue
 
-        if segment_hint:
-            # Must match the segment hint in note
-            if hint_lower not in note:
+        if hint_keywords:
+            # Must match at least one hint keyword in note
+            if not any(kw in note for kw in hint_keywords):
                 continue
-            # Score: longer note match = better
-            score = len(note)
+            # Score: prefer exact hint match, then synonym match
+            if hint_lower in note:
+                score = 100 + len(note)
+            else:
+                score = len(note)
         else:
             # No hint: prefer scenic segments (三峡, Gorges, etc.)
             scenic = any(s in note for s in ("三峡", "gorge", "scenic", "宜昌"))
@@ -1857,7 +1878,28 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         placememory.save_seen_humanities(_state.seen_humanities)
         h_text = describe.render("humanities", h_card, None, _rng)
         if h_text:
+            # 故人(人物卡)尾部加引导: ask 能问出更多
+            if h_card.get("category") == "人物":
+                h_name = h_card.get("ref", {}).get("name", "")
+                h_text += f"\n{h_name}。这名字你记下了。ask 能问出更多。"
             sections.append(h_text)
+
+    # ── 5d. 卡中人遇见: walk 落在该地 5km 内 → 40% sight ────────────
+    person_text = ""
+    local_month = local_dt.month if local_dt else (now.month if now else 7)
+    if not _state.person_encountered_this_walk:
+        hit = people_mod.find_nearby_person(
+            lat, lon, local_month, _state.seen_people, _rng,
+        )
+        if hit:
+            person_text = hit["sight"]
+            _state.person_encountered_this_walk = True
+            _state.last_person = hit["data"]
+            _state.last_person_place = hit["place"]
+            _state.talk_count = 0
+            _state.seen_people.add(f"{hit['place']}/{hit['person']}")
+    if person_text:
+        sections.append(person_text)
 
     # 留白: 缓存命中且无任何 section 命中 → 短句直接返回
     quiet = env_cached and not sections
@@ -3201,6 +3243,43 @@ def quotes() -> dict:
         parts.append(f"「{t}」——{place}" if place else f"「{t}」")
     text = f"本旅程说了 {len(_state.quotes)} 句话。\n" + "\n".join(parts)
     return {"text": text, "data": {"quotes": _state.quotes}}
+
+
+@mcp.tool()
+def talk(question: str | None = None) -> dict:
+    """和最近遇见的人搭话。不传参数=最近的人说下一句;传路怎么走=问路。"""
+    return talk_impl(question)
+
+
+def talk_impl(question: str | None = None) -> dict:
+    """搭话。lines 轮换,第四句是记得你变体。question 含路/方向 → knows。"""
+    if _state.pos is None:
+        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+    if _state.last_person is None:
+        return {"text": "附近没有人。", "data": {"error": "no_person"}}
+
+    entry = _state.last_person
+    place = _state.last_person_place or ""
+    person = entry.get("person", "那人")
+
+    reply = people_mod.talk(entry, _state.talk_count, question=question, rng=_rng)
+
+    # Only advance line count if it wasn't a knows-type question
+    is_knows = question and any(k in question for k in ("路", "怎么走", "方向", "在哪", "哪里"))
+    if not is_knows:
+        _state.talk_count += 1
+    _state.save()
+
+    _log_journey_event("talk", f"{person}@{place}: {reply[:30]}")
+
+    return {
+        "text": reply,
+        "data": {
+            "person": person,
+            "place": place,
+            "line_index": _state.talk_count,
+        },
+    }
 
 
 @mcp.tool()

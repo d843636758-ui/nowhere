@@ -110,6 +110,11 @@ class WorldState:
             "recent_touch_sentences": self.recent_touch_sentences[-10:],  # keep last 10
             "journey_log": self.journey_log[-50:],  # keep last 50 events
             "wilderness_depth_km": self.wilderness_depth_km,
+            "seen_people": list(self.seen_people),
+            "last_person": self.last_person,
+            "last_person_place": self.last_person_place,
+            "talk_count": self.talk_count,
+            "person_encountered_this_walk": self.person_encountered_this_walk,
         }
 
     @classmethod
@@ -157,6 +162,11 @@ class WorldState:
         s.journey_log = data.get("journey_log", [])
         s.postcards = data.get("postcards", [])
         s.wilderness_depth_km = data.get("wilderness_depth_km", 0.0)
+        s.seen_people = set(data.get("seen_people", []))
+        s.last_person = data.get("last_person")
+        s.last_person_place = data.get("last_person_place")
+        s.talk_count = data.get("talk_count", 0)
+        s.person_encountered_this_walk = data.get("person_encountered_this_walk", False)
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
             s.radio_pos = tuple(data["radio_pos"])

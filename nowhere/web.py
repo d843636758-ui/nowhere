@@ -271,7 +271,10 @@ async def api_open_door(request: Request) -> JSONResponse:
     to = body.get("to")
     if to is not None and not isinstance(to, str):
         return _bad_request("bad_to")
-    r = await _server.open_door_impl(to=to)
+    traveler_name = body.get("traveler_name")
+    if traveler_name is not None and not isinstance(traveler_name, str):
+        return _bad_request("bad_traveler_name")
+    r = await _server.open_door_impl(to=to, traveler_name=traveler_name)
     return _json_or_text(r)
 
 
