@@ -4577,9 +4577,9 @@ _drift_cache: dict | None = None
 def _load_drift_cards() -> dict:
     global _drift_cache
     if _drift_cache is None:
-        fp = _DATA_DIR / "drift_cards.json"
+        fp = _TIMEAXES_DATA_DIR / "drift_cards.json"
         if fp.exists():
-            _drift_cache = json.loads(fp.read_text(encoding="utf-8"))
+            _drift_cache = _json.loads(fp.read_text(encoding="utf-8"))
         else:
             _drift_cache = {}
     return _drift_cache

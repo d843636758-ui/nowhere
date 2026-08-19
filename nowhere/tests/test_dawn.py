@@ -58,7 +58,7 @@ def test_dawn_chorus_intensity_mapping():
     # sun_alt = -6.0 → first card (index 0, 一只)
     result = dawn_chorus("forest", -6.0, rng)
     assert result is not None
-    assert result == "先是一只,在很远的树上。然后是第二只,近了。"
+    assert result == "先是一只,在远处的树上。然后是第二只,近了。"
 
     # sun_alt = -0.5 → last card (index 3, 满)
     result = dawn_chorus("forest", -0.5, rng)
