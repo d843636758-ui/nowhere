@@ -285,12 +285,15 @@ class TestFirstImpression:
                 assert "蔷薇科" not in fi, f"{vol}: 百科腔"
 
     def test_impression_with_weather_slots(self, _tmp_home):
-        """印象里有天气槽位值。"""
+        """印象里有天气槽位值(多次尝试至少一次命中)。"""
         env = {"weather": {"precip": "rain", "wind_ms": 2, "temp_c": 15, "cloud": 80}}
-        fi = nb._generate_first_impression("flora", "云莓", env, 30.0)
-        assert fi is not None
-        # 应该包含雨相关的词
-        assert "雨" in fi
+        hits = 0
+        for i in range(20):
+            fi = nb._generate_first_impression("flora", f"植物{i}", env, 30.0)
+            if fi and "雨" in fi:
+                hits += 1
+        # 6 个变体中 3 个有天气槽位,20 次应该命中多次
+        assert hits > 0, f"20 次尝试无一次命中天气槽位"
 
     def test_impression_10_entries_null_ratio(self, _tmp_home):
         """10 笔里 null 不超过 4。"""

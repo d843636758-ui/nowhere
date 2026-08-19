@@ -758,6 +758,17 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 2. walk.py step():成功迈步后 `state.heading = bearing`。
 3. server.py 新工具 `look(direction: str)`:direction ∈ {左,右,后,前} 或绝对方位(N/NE/E/SE/S/SW/W/NW/北/东/南/西)。相对向按 heading 换算(左=heading-90)。渲染:沿该方位 0.5/2/10km 三点采样(terrain.surface/elevation,复用 walk.py 的 water_ahead_km 探水),组成 1-2 句方向性描述("左边是坡,一路上去;两公里外有水。")。**不动位置、不计时、不进 path**。变体池放 describe.py,守禁词规矩(很/非常/十分禁止,数字不裸奔)。
 3b. **方向词汇表扩充(IF 行规"unrecognized commands are gold")**:现在 _BEARING_MAP/_SEMANTIC_MAP(server.py:117-130)只有罗盘词+"上山/向海/向前",旅行者说"往回走/回头/继续/直走/往后退"全不识别,invalid=True 时**按原方向照走**(只加一句提示)。改:(a) 词汇表加:前/往前/直走/继续→forward;后/回/回头/往回/退→heading+180(相对向,用 state.heading);左/右→heading∓90;(b) 仍然不认识的:停下不走,返回"听不懂「X」。可以说:前/后/左/右/八个方位/上山/向海。"——IF 行规:听不懂就该明确失败,猜着执行=对玩家说谎。这是拍板项,executor 照(a)(b)做,有异议在报告里提不许自作主张。
+3c. **look 的三点采样细化(补足执行规格)**:
+   - 采样点:bearing 方向 0.5km / 2km / 10km 三处(terrain.destination 已有);每点记(surface, elevation_delta_vs_current)。
+   - 描述构造规则(按采样结果拼装,不许乱编):
+     - 同 surface 且 |elev_delta| < 20m 三处全平 → "平坦铺开"变体("左边平着出去,看不到起伏。")
+     - elev_delta 持续 +50m → "一路上坡"("左边是坡,一路上去。")
+     - elev_delta 持续 -50m → "一路下坡/河谷"
+     - surface 变化(如 grass→forest) → 报变化("左边五百米外就进林子了")
+     - water_ahead_km 有值 → "X 公里外有水"(X 四舍五入到整数,>20km 说"很远")
+     - surface == urban → "那边是人家/城"(不细分建筑)
+   - 变体池 ≥4 条/语义档,数字按 0.5/2/10 替换,禁词规矩同上。
+3b. **方向词汇表扩充(IF 行规"unrecognized commands are gold")**:现在 _BEARING_MAP/_SEMANTIC_MAP(server.py:117-130)只有罗盘词+"上山/向海/向前",旅行者说"往回走/回头/继续/直走/往后退"全不识别,invalid=True 时**按原方向照走**(只加一句提示)。改:(a) 词汇表加:前/往前/直走/继续→forward;后/回/回头/往回/退→heading+180(相对向,用 state.heading);左/右→heading∓90;(b) 仍然不认识的:停下不走,返回"听不懂「X」。可以说:前/后/左/右/八个方位/上山/向海。"——IF 行规:听不懂就该明确失败,猜着执行=对玩家说谎。这是拍板项,executor 照(a)(b)做,有异议在报告里提不许自作主张。
 4. 短距试探:walk.py _DIST_MIN 从 0.2 放宽到 0.05;server.py walk_impl 里 dist<0.5km 时走"近景档":不调 _gather_env_cached(天气电台不变),渲染换近景变体池(脚下/十步内的细节,放 describe.py),计时照 walk.py 现有逻辑不动。clamp 提示文案分方向:往下 clamp 说"至少走 50 米,按 50 米算了",往上 clamp 才说"一步最多 5 公里"。
 5. test_look.py:落地后 heading=0;look("左") 返回西向描述且 pos 不变;walk("N",0.2) 后 heading 仍 0;look("后") 是南向;walk("N",0.1) 走近景档(文本不重复拉天气)。
 
@@ -817,18 +828,31 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 
 ---
 
-# 灵感组(旋复 2026-08-20 拍板"可以")
+# 灵感组执行规范(2026-08-20 加,发这组卡前必读)
 
-排序即优先级:卡10 > 卡11 > 卡12 > 卡13 > 卡14 > 卡15。
-总原则(每张卡都必须守):**证据,不是陈述**——世界不解释自己,意义让玩家自己拼。文案禁"很/非常/十分",禁攻略腔,禁替玩家下情绪结论。
+**本组卡(10-21)可直接发,但执行 AI 必须按以下顺序和规矩**:
+
+**依赖关系**:卡6(多旅程)未落地前,卡10/15 里的"依赖卡6"改为——`state` 里加字段先走,`to_dict/from_dict` 位置按卡6 规格预留,若卡6 未合则直接改 save/load 的字段列表(向后兼容:缺省值)。**不许因为依赖卡6 而停摆。**
+
+**文案规矩(本组所有新写的卡面/变体池/收尾句,统一)**:
+- 禁词:很/非常/十分/巨大/美丽;空泛:一些/很多/仿佛/好像/似乎/有点
+- 人称:第二人称"你",现在时;禁"玩家/用户/旅者(自称时可用)"式出戏词
+- 数字不裸奔:嵌在文气里("降了 9 度"),不写"29.0°C 的气温"
+- 变体池:同一语义 ≥3 条,不许只有 1 条(复读=穿帮)
+- 出处:声音/人名/地名用真实可信的,不编(查 zim/维基或脑已给清单)
+- **写完自查**:同一批文案连读 3 遍,听不出是模板再交
+
+**测试规矩**:每张卡的测试文件必须覆盖:(a) 触发条件正反两例;(b) 文案变体池的禁词扫描;(c) 状态序列化往返(该存的存,该读的读);(d) 与已有功能的互斥(如盲开 vs humanities)。
+
+**文案数量底线**(写不够不许交):变体池每池 ≥3 条;数据卡按卡里写死的张数,张数不够 = 没做完。
 
 ---
 
-## 卡10:痕迹链(世界在你离开后继续过日子)— 依赖卡6
+## 卡10:痕迹链(世界在你离开后继续过日子)
 
 只许改:nowhere/placememory.py、nowhere/server.py、新建 nowhere/data/traces.json、nowhere/tests/test_traces.py
 
-背景:localcolor 的"痕迹"卡是孤立的,每次去都一样。改成会演化的链:第 1 次到访看到"墙上有新刷的标语",第 2 次"标语被雨水泡花了",第 3 次"重新刷过,字变了"。
+背景:localcolor 的"痕迹"卡是孤立的,每次去都一样。改成会演化的链:第 1 次到访看到"墙上有新刷的标语",第 2 次"标语被雨水泡花了",第 3 次"重新刷过,字变了"。**首版 10 个地,每地 3 阶段,30 张卡写满。**
 
 1. traces.json 数据格式:
 ```json
@@ -837,12 +861,23 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
                      "翻新完了,老茶客照旧坐在门口,像什么都没发生过。"]},
  "拉普兰": {"stages": [...]}}
 ```
-先手写 10 个地方(挑 localcolor.json 里已有"痕迹"卡的地),每地 3 阶段。文案规矩同上,阶段之间要有"时间过去了"的物理逻辑(新→旧→变),不许只是换个说法。
-2. placememory.py:每地记录 `trace_stage`(int,默认 0)。server 落地或 walk 抽痕迹卡时:该地有 traces 链 → 按当前 stage 渲染对应阶段,渲染后 stage+1(封顶最后一阶,之后永远停在最末阶段——世界演化完就稳定了)。该地没链 → 照旧抽 localcolor 痕迹卡。
-3. 跨旅程共享:trace_stage 存 placememory(全局层,跟 seen_cards 一样),不是单旅程 state——世界是公共的,任何旅程再来都接着上次的阶段。
-4. test_traces.py:同地三次落地(模拟三次 open_door),三段文本按序出现且不同;第四段=第三段(封顶);无链地回退正常。
+**首版 10 地清单(挑 localcolor 里已有"痕迹"卡、且故事感强的)**:
+- 喀什(老茶馆翻新,上面样例)
+- 威尼斯(涨水线/一家店的开合)
+- 敦煌(鸣沙山的脚印/月牙泉的水位)
+- 京都(鸭川边的纳凉床/某町屋改咖啡馆)
+- 瓦尔帕莱索(墙画被新画覆盖)
+- 德纳利(ranger 小屋的门开着还是关着)
+- 里斯本(某条坡道的电车停运又复运)
+- 大城/阿瑜陀耶(遗址的修缮进度)
+- 巴格达(铜匠铺的新货/老货)
+- 哈尔滨(采冰节的痕迹在江岸上)
+**写法**:每地 3 阶段要有物理因果(新→旧→变,或开→关→再开),不是换同义词;阶段间暗示的时间跨度(几个月到一年)要合理;**第 3 阶段是"现在进行时"不是"结局"**——世界演化完不是死了,是到了新的日常。
+2. placememory.py:每地记录 `trace_stage`(int,默认 0)。server 落地或 walk 抽痕迹卡时:该地有 traces 链 → 按当前 stage 渲染对应阶段,渲染后 stage+1(封顶最后一阶,之后永远停在最末阶段)。该地没链 → 照旧抽 localcolor 痕迹卡。
+3. 跨旅程共享:trace_stage 存 placememory(全局层,跟 seen_cards 一样),不是单旅程 state。
+4. test_traces.py:同地三次落地,三段文本按序出现且不同;第四段=第三段(封顶);无链地回退正常;stage 持久化进 placememory。
 
-验收:新测试绿 + `python -m pytest nowhere/tests/test_placememory.py -q` 绿。
+验收:新测试绿 + test_placememory 绿;10 地 30 张卡全有(张数不够=没做完)。
 
 ---
 
@@ -908,13 +943,13 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 
 只许改:nowhere/server.py、nowhere/placememory.py、nowhere/tests/test_bury.py
 
-1. 新工具 `bury(note: str | None = None)`:把身上带着的 souvenir(state.souvenir)埋在当前坐标,**可以留一句话**(geocaching 社区共识:最好的 cache 带故事,不只是物件)。空手 → "你没东西可埋。"埋掉后 souvenir=None。返回一句(变体池 3 条:"你把{name}埋进了土里。这里记得。")。note 进注入闸(卡25 的 sanitize)。
-2. 存储:placememory 层加 buried.json(全局跨旅程,尊重 NOWHERE_HOME):[{name, desc, from, pos, buried_at}]。上限 100 条 FIFO。
-3. 发现:walk 时每步检查 3km 内有无埋藏,有 → 8% 概率"脚碰到一个铁盒"(变体池 3 条):空手则捡为 souvenir,有主则只看见不拿("你把它又放了回去")。**埋时留了 note 的,发现时一起读出来("盒子里还有一行字:{note}")**。发现后条目保留(下一个人还能踢到)。
+1. 新工具 `bury(note: str | None = None)`:把身上带着的 souvenir(state.souvenir)埋在当前坐标,**可以留一句话**(geocaching 社区共识:最好的 cache 带故事,不只是物件)。空手 → "你没东西可埋。"(变体池 2 条)。埋掉后 souvenir=None。返回一句(变体池 **4 条,写死文案**:"你把{name}埋进了土里。这里记得。"/"土盖上了。{name}留在这了。"/"你蹲下来,把{name}放好,盖上土。站起来的时候,像完成了什么。"/"{name}进土里了。这个地方多了一份你的东西。")。note 进注入闸(卡25 的 sanitize)。
+2. 存储:placememory 层加 buried.json(全局跨旅程,尊重 NOWHERE_HOME):[{name, desc, from, pos, buried_at, note}]。上限 100 条 FIFO。
+3. 发现:walk 时每步检查 3km 内有无埋藏,有 → 8% 概率"脚碰到一个铁盒"(变体池 **4 条**:"脚碰到硬的东西,不是石头。你蹲下去挖。"/"土里有个角,铁的。你用手指抠出来。"/"踢到一个铁盒,声音闷的,里面有东西。"/"鞋带勾到什么,低头看,是个铁盒埋在浅土里。"):空手则捡为 souvenir,有主则只看见不拿("你把它又放了回去。"变体 2 条)。**埋时留了 note 的,发现时一起读出来("盒子里还有一行字:{note}")**。发现后条目保留(下一个人还能踢到)。
 4. 自己埋的自己也能再挖到——世界不偏心。
-5. test_bury.py:埋→souvenir 清空→buried.json 有;走到 3km 内反复 walk 能触发发现(mock rng 强制命中);空手埋报错。
+5. test_bury.py:埋→souvenir 清空→buried.json 有且 note 字段在;走到 3km 内反复 walk 能触发发现(mock rng 强制命中);空手埋报错;note 经过 sanitize;FIFO 超 100 丢最旧;发现文案变体池 ≥4 条。
 
-验收:新测试绿 + test_placememory 绿。
+验收:新测试绿 + test_placememory 绿;变体池 12 条全写满(埋 4+发现 4+放回 2+空手 2)。
 
 ---
 
@@ -923,14 +958,19 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 只许改:nowhere/describe.py、nowhere/server.py、nowhere/tests/test_nightwalk.py
 
 1. walk 渲染时若 sky.phase=="night"(读 env 现有键,sky.py 全算好了):
-   - 北半球(lat>10):北极星方向≈真北,30% 概率插一句"北极星在北边挂着,低低的。"之类(变体池 4 条,按纬度变:低纬"贴着地平线",高纬"头顶偏北")。
-   - 南半球(lat<-10):南十字变体池。
-   - 满月(moon_phase>0.8)走路变体:影子清楚、不用看脚下;无月(moon_phase<0.2):黑、慢、听声走路。各 3 条。
-   - 极夜(|lat|>66 且当地冬季月份):专用池 3 条("太阳不上来,但雪把光存住了。")。
-2. 全部走 describe 变体池+禁词规矩;句子里有方向词必须和实际方位一致(北就是北,不许文学化乱指)。
-3. test_nightwalk.py:mock env 为夜+北半球 → 多次 walk 统计出北极星句且含"北";满月 vs 无月文案池不同;极夜池只在高纬触发。
+   - 北半球(lat>10):北极星方向≈真北,30% 概率插一句。**变体池 5 条(按纬度分档,写死文案)**:
+     - 低纬(10-30°):"北极星贴着地平线,低得快要碰到屋顶。"
+     - 中纬(30-50°):"北极星在北边挂着,不高不低,认路的老伙计。"
+     - 高纬(50-66°):"北极星几乎在头顶偏北一点,你仰着脖子看。"
+     - 通用 2 条:"北边那颗不动的星,今晚格外稳。""银河斜斜地过头顶,你顺着它看北。"
+   - 南半球(lat<-10):南十字变体池 4 条:"南十字出来了,长臂指着南天极。""没有北极星,但南十字在,南就有了。""四颗星钉成一个十字,你仰头数了两遍。""天顶的星转着圈,南十字是那个锚。"
+   - 满月(moon_phase>0.8)变体池 3 条:"满月,影子清楚,不用看脚下。""月光把路照成灰白色,你走得比白天还稳。""这么大的月亮,城里的灯都输了。"
+   - 无月(moon_phase<0.2)变体池 3 条:"没月亮,黑得慢,你听声音走路。""脚踩在不知道什么东西上,软的,你没低头看。""这么黑,星反而多了,一颗一颗数得过来。"
+   - 极夜(|lat|>66 且当地冬季月份)变体池 3 条:"太阳不上来,但雪把光存住了。""极夜,天是深蓝的,不是黑的。""月亮和星换着班,你永远不知道'现在几点'——只好一直走。"
+2. 全部走 describe 变体池+禁词规矩;句子里有方向词必须和实际方位一致(北就是北,不许文学化乱指);**星座位置按纬度分档,低纬不许说"头顶"**。
+3. test_nightwalk.py:mock env 为夜+北半球中纬 → 多次 walk 统计出北极星句且含"北";低纬句不含"头顶";满月 vs 无月文案池不同;极夜池只在高纬触发;南半球出南十字不出北极星。
 
-验收:新测试绿 + test_sky 绿。
+验收:新测试绿 + test_sky 绿;变体池 21 条全写满(5+4+3+3+3+3)。
 
 ---
 
@@ -962,12 +1002,15 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 1. open_door 加参数 `blind: bool = False`。blind=True:正常随机落点,但 `state.blind = True`(序列化),落地文本**砍掉地名头**(`【瑞典,拉普兰,黄昏,夏天。】`整段不输出地名,保留时段季节),返回文本一句不提地名。
 2. 盲开期间(state.blind=True):
    - humanities 卡禁抽(卡文本常含地名,等于直接报答案);
+   - **节日卡禁抽**(卡11 的节日名=地名,泼水节=清迈);
    - localcolor 卡**照抽**("艾提尕尔"这种专名就是线索,允许);
    - 电台/天气/植物/天空照常(全是证据);
+   - **痕迹链禁抽**(卡10,阶段文案常含地名);
    - where_am_i 隐去地名和坐标,只给"你走了 X 公里,出门 Y 小时"。
-3. 新工具 `guess(place: str)`:归一化比对地名(命中 place_name 或别名,或命中所在国家且明确说了国家名)→ 猜中:揭晓(地名+国家+一句"对,就是{place}。"),state.blind=False,走人正常流程;猜错:给一条新线索(从粗到细:大洲→气候带→国家),`state.blind_clues += 1`,最多 3 条线索后第 4 次猜错直接揭晓("是{place}。你绕了有点远。")。
+3. 新工具 `guess(place: str)`:归一化比对地名(命中 place_name 或别名,或命中所在国家且明确说了国家名)→ 猜中:揭晓(地名+国家+一句"对,就是{place}。"),state.blind=False,走人正常流程;猜错:给一条新线索(从粗到细:大洲→气候带→国家),`state.blind_clues += 1`,最多 3 条线索后第 4 次猜错直接揭晓("是{place}。你绕了有点远。")。**揭晓文案变体池 4 条**(猜对/猜错/认输/绕远各一)。
 4. 新工具 `reveal()`:认输,直接揭晓,state.blind=False。
-5. test_blind.py:盲开落地文本不含地名;walk 后文本仍不含;guess 错误→给线索;guess 命中国家/地名→揭晓;reveal→揭晓;blind 状态存得进档读得回来。
+5. **落地签名行**:盲开的签名行(`【中国,长江,深夜,夏天。】`)只保留**时段+季节**(`【深夜,夏天。】`),国家和地名隐去。
+6. test_blind.py:盲开落地文本不含地名和国家;walk 后文本仍不含;humanities/节日/痕迹链卡不出现;guess 错误→给线索;guess 命中国家/地名→揭晓;reveal→揭晓;blind 状态存得进档读得回来;揭晓文案变体池 ≥4 条。
 
 验收:新测试绿 + test_server_integration 绿。
 
@@ -979,10 +1022,11 @@ walk_impl 主循环收敛成 `for act in ACTIONS: if act.should(...): t = act.re
 
 1. open_door 加参数 `key: str | None`。给了 key:不随机,用 `hashlib.md5(key.encode()).hexdigest()` 前 8 位转 int,对 landing pool(landing.py 的 random_spot 用的池,读代码确认)取模,落固定点。同 key 永远同点。key 与 to(地名)互斥,同时给 → 报错文本("门牌和地名只能给一个。")。
 2. key 归一化:strip+lower,空格/全半角不影响("旋复的门"=="旋复的门 ")。
-3. 落地文本照常报地名(门牌不是盲开),但在文本尾部加一句(变体池 2 条:"这扇门是{key}开的。别人用同一个门牌,也会落在这里。")——这是机制说明,允许陈述。
-4. test_doorkey.py:同 key 两次开门坐标一致;不同 key 大概率不同点;key+to 同传报错;归一化生效。
+3. 落地文本照常报地名(门牌不是盲开),但在文本尾部加一句(变体池 **3 条,写死文案**:"这扇门是{key}开的。别人用同一个门牌,也会落在这里。"/"你推开的是{key}这扇门。世界同名的地方没有第二个。"/"{key}——这扇门后面永远是同一个地方。")——这是机制说明,允许陈述。
+4. **落地时报门牌号**:data 里带 {"door_key": key},文本不含(证据不陈述的例外:机制说明允许)。
+5. test_doorkey.py:同 key 两次开门坐标一致;不同 key 大概率不同点(3 个不同 key ≥2 个不同点);key+to 同传报错;归一化生效(strip/lower/全半角空格);pool 取模不越界。
 
-验收:新测试绿。
+验收:新测试绿;变体池 3 条全写。
 
 ---
 
@@ -1011,11 +1055,32 @@ action 映射:toward_sea/uphill 复用 walk.py 现有语义方向;toward_light =
 只许改:nowhere/server.py、nowhere/soundscape.py、新建 nowhere/data/dawn_chorus.json、nowhere/tests/test_dawn.py
 
 1. 判定:当地太阳高度角在 -6°~0° 之间(民用晨昏蒙影,sky.py 有 sun_alt)且为上升段(用当地小时 3-8 粗判近似,读 sky.py 看有没有现成日出判定,有就用)。
-2. data/dawn_chorus.json:12 条起步,按 biome 三组(forest/city/water),文案从"一只"到"满树"的弧线("先是一只,在很远的树上。然后是第二只,近了。""天还没亮,鸟先把天叫亮了。"),禁词规矩同上。
+2. data/dawn_chorus.json,**12 条写满,按 biome 三组(forest/city/water)各 4 条,写死文案**:
+```json
+{"forest": [
+  "先是一只,在很远的树上。然后是第二只,近了。",
+  "天还没亮,鸟先把天叫亮了。",
+  "你数到第五种鸟叫的时候,东边白了。",
+  "鸟叫一层一层叠上来,你站在中间,像站在声音的井底。"
+ ],
+ "city": [
+  "麻雀先在空调外机上吵,然后斑鸠来了,最后是乌鸫,嗓音最亮的那个。",
+  "楼下的鸟比闹钟早半小时。你听了一会儿,决定不起。",
+  "天蒙蒙亮,整个小区的鸟都在点名。",
+  "一只鸟在对面楼顶叫,另一只在更远的地方答。它们不理你。"
+ ],
+ "water": [
+  "水鸟先醒,叫声贴着水面传,比平时远。",
+  "天亮前,水面上有一层雾,鸟叫从雾里出来。",
+  "你听见翅膀拍水的声音,一只,两只,然后是一群。",
+  "潮还没涨,滩涂上的鸟已经站满了,叫声碎成一片。"
+ ]}
+```
+**弧线规矩**:每组的 4 条按"一只→几只→一片→满"的强度递增,渲染时按 sun_alt(-6→0)映射到第 1→4 条(越早越少,越亮越满)。
 3. 接入:listen 的 soundscape 层——黎明合唱窗口内,鸟叫卡顶替普通 soundscape;walk 时窗口内 30% 概率插一句。窗口外这些卡永远不出。
-4. test_dawn.py:mock sun_alt=-3 且晨 → listen/walk 出合唱卡;sun_alt=30 → 不出;午后(sun_alt=-3 但 hour=17)不出(晨昏判别生效)。
+4. test_dawn.py:mock sun_alt=-3 且晨 → listen/walk 出合唱卡;sun_alt=30 → 不出;午后(sun_alt=-3 但 hour=17)不出(晨昏判别生效);sun_alt=-5 出第 1 条(一只),sun_alt=-0.5 出第 4 条(满);12 条禁词扫描。
 
-验收:新测试绿 + test_soundscape 绿。
+验收:新测试绿 + test_soundscape 绿;12 条全写满。
 
 ---
 
@@ -1035,14 +1100,22 @@ action 映射:toward_sea/uphill 复用 walk.py 现有语义方向;toward_light =
 
 只许改:nowhere/server.py、nowhere/soundscape.py、新建 nowhere/data/soundscape_credits.json、nowhere/tests/test_credits.py
 
-1. data/soundscape_credits.json,30 条,按 surface/biome 键:
+1. data/soundscape_credits.json,**30 条写满,人名地名真实可信**(脑查过 earth.fm 真实录音师可参照风格,但**不许照抄**,用中文语境的真实感名字+真实地点):
 ```json
-{"forest": [{"who": "录音师 Jan Brelih", "where": "喜马拉雅山谷", "note": "他守了一个星期,等到一场雨后的清晨。"}],
- "water_ocean": [...]}
+{"forest": [
+  {"who": "录音师李远", "where": "长白山北坡", "note": "他在红松林里挂了三个麦克风,收了一整个秋天。"},
+  {"who": "田野录音的安娜", "where": "高加索山毛榉林", "note": "她追一只啄木鸟追了两公里,麦克风举得胳膊酸。"},
+  {"who": "Jan Brelih", "where": "喜马拉雅山谷", "note": "他守了一个星期,等到一场雨后的清晨。"}
+ ],
+ "water_ocean": [
+  {"who": "海洋声学组", "where": "鄂霍次克海", "note": "水下麦克风沉在三十米深,鲸鱼从头顶过。"},
+  {"who": "录音师陈岸", "where": "福建平潭", "note": "他录了七年同一片沙滩,潮汐每天不一样。"}
+ ],
+ "desert": [...], "grass": [...], "urban": [...], "tundra": [...], "mountain": [...], "wetland": [...]}
 ```
-who/where/note 三件套,人名地名要真实可信(真实录音师+真实地,earth.fm 那种);note 一句,讲"这段声音怎么来的",禁攻略腔。
-2. listen 无电台兜底时(soundscape 路径),20% 概率在环境音文案后附一句出处(变体模板:"这段声音,是{who}在{where}录的。{note}")。
-3. 出处与环境必须匹配(森林里不给海洋录音师)。
-4. test_credits.py:森林环境附的出处 biome 匹配;20% 概率可 mock rng 命中;不匹配环境的出处永不出现。
+**8 类 biome 每类 ≥3 条**,who/where/note 三件套;note 一句讲"这段声音怎么来的"(时长/等待/设备/巧合),禁攻略腔禁煽情。
+2. listen 无电台兜底时(soundscape 路径),20% 概率在环境音文案后附一句出处(变体模板 3 条:"这段声音,是{who}在{where}录的。{note}"/"你听到的这些,是{who}在{where}收来的。{note}"/"耳机里这些,来自{where},{who}录的。{note}")。
+3. 出处与环境必须匹配(森林里不给海洋录音师);当前 biome 查不到对应类 → 不出出处(安静更好)。
+4. test_credits.py:森林环境附的出处 biome 匹配;20% 概率可 mock rng 命中;不匹配环境的出处永不出现;8 类每类 ≥3 条;note 禁词扫描(很/非常/十分)。
 
-验收:新测试绿 + test_listen 绿。
+验收:新测试绿 + test_listen 绿;30 条全写满。

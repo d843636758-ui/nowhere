@@ -4267,6 +4267,20 @@ def journal() -> dict:
 
 
 @mcp.tool()
+def notebook(volume: str | None = None) -> dict:
+    """旅行手账——五册自然志(植物/动物/电台/水文/人物)。
+
+    不传参数: 列出所有册概况。
+    传册名(flora/fauna/radio/water/people): 指定册全列。
+    """
+    try:
+        text = notebook_mod.notebook(volume)
+        return {"text": text, "data": {"volume": volume}}
+    except Exception as e:
+        return {"text": f"手账打不开: {e}", "data": {"error": str(e)}}
+
+
+@mcp.tool()
 def walk_alone() -> dict:
     """本次旅程屏蔽同游者文案。注册表保留,标记独行。下次 open_door 恢复。"""
     if not travelers_mod.is_enabled():
