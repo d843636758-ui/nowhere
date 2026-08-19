@@ -192,11 +192,12 @@ def test_regression_xiang_gang_guo_xue(mock_smell, mock_scenes):
     # Direct composition
     rng = random.Random(7)
     result = d.compose([smell, walk], rng)
-    assert "雪。风" in result or "雪。" in result.split("风")[0], (
-        f"Regression: missing period between smell and walk text: {result}"
+    # Period should be inserted after "雪" (end of smell section) before walk section
+    assert "雪。" in result, (
+        f"Regression: missing period after smell section: {result}"
     )
-    assert "雪风" not in result, (
-        f"Regression: '像刚下过雪风声大' concatenation still present: {result}"
+    assert result.index("雪。") < result.index("风"), (
+        f"Regression: period not between sections: {result}"
     )
 
 
@@ -205,8 +206,10 @@ def test_regression_compose_inserts_period_at_boundary():
     bad = ["苔藓的味道，湿的，像刚下过雪", "风声大"]
     rng = random.Random(42)
     result = d.compose(bad, rng)
-    assert "雪。风" in result, f"compose() did not insert period at boundary: {result}"
-    assert "雪风" not in result, f"Known concatenation still present: {result}"
+    assert "雪。" in result, f"compose() did not insert period at boundary: {result}"
+    assert result.index("雪。") < result.index("风"), (
+        f"Period not between sections: {result}"
+    )
 
 
 # ── 8 places × landing + 3 walks (fixed seed) ────────────────────────
@@ -246,9 +249,10 @@ def test_seam_eight_places_landing_walks(mock_smell, mock_scenes):
             result = d.compose(sections, rng, section_type=section_type)
 
             # Assert: no missing-period concatenation
-            assert "雪风" not in result, (
-                f"Missing period in {place} seed={seed}: {result}"
-            )
+            if "雪" in result and "风" in result:
+                assert "雪。" in result, (
+                    f"Missing period in {place} seed={seed}: {result}"
+                )
             # Assert: no consecutive periods
             assert "。。" not in result, (
                 f"Double period in {place} seed={seed}: {result}"

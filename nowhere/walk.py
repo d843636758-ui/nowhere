@@ -14,10 +14,18 @@ _LAND_SPEED_KMH = 4.0
 _WATER_SPEED_KMH = 1.5
 _SLOPE_SLOW_THRESHOLD_DEG = 20.0
 _CLIFF_THRESHOLD_DEG = 45.0
+_LAT_LIMIT = 85.0  # beyond ±85° latitude: honest "no further north/south"
 _SEMANTIC_DIRECTIONS = {
     "uphill": 8,   # try all 8 directions
     "toward_sea": 8,
 }
+
+# ── Latitude limit closing variants (Card 40: honest boundaries) ────
+_LAT_LIMIT_CLOSINGS = [
+    "再往前没有北了。地平线弯成了弧形,你站在地球的头顶。",
+    "北边到头了。风从四面八方同时吹来,没有方向了。",
+    "不能再往北走了。脚下是冰,头顶是极夜的黑。你到了。",
+]
 
 
 def _clamp_dist(dist_km: float) -> float:
@@ -146,6 +154,39 @@ def step(
 
     # ── Compute destination ──────────────────────────────────────────
     new_lat, new_lon = terrain.destination(lat, lon, bearing, dist_km)
+
+    # ── Sphere wrap (Card 40: honest boundaries) ────────────────────
+    # Longitude: auto-wrap at ±180°
+    if new_lon > 180.0:
+        new_lon -= 360.0
+    elif new_lon < -180.0:
+        new_lon += 360.0
+
+    # Latitude: ±85° limit with honest closing
+    lat_limit_reached = False
+    if abs(new_lat) > _LAT_LIMIT:
+        new_lat = math.copysign(_LAT_LIMIT, new_lat)
+        lat_limit_reached = True
+
+    # ── Water honesty (Card 40): walking toward open water ≥5km ─────
+    # Check if destination is water and we're on land
+    dest_surface = terrain.surface(new_lat, new_lon)
+    was_on_land = not terrain.is_water(lat, lon)
+    if was_on_land and dest_surface in ("water_ocean", "water_fresh"):
+        # Check distance to water
+        water_dist = water_ahead_km(lat, lon, bearing, max_km=10.0)
+        if water_dist is not None and water_dist >= 5.0:
+            return {
+                "blocked": True,
+                "reason": "water",
+                "entered_water": False,
+                "elevation_delta": 0.0,
+                "slope_deg": 0.0,
+                "dist_km": dist_km,
+                "new_surface": terrain.surface(lat, lon),
+                "climbed": False,
+                "water_distance_km": water_dist,
+            }
 
     # ── Slope check ──────────────────────────────────────────────────
     slope_deg, actual_dist = terrain.slope_between(

@@ -1064,7 +1064,11 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
             used.add(t)
         parts.append(t + s)
 
-    return _normalize_prose("".join(parts))
+    result = "".join(parts)
+    # Ensure the final text ends with terminal punctuation
+    if result and _ends_with_cjk(result):
+        result += "。"
+    return _normalize_prose(result)
 
 
 def sanity_check(text: str, env: dict) -> str:
@@ -1232,14 +1236,25 @@ def _render_terrain(payload: dict, prev: dict | None, rng: random.Random) -> str
             elev_clause=elev_clause,
         )
 
-    # Append touch description
+    # Append touch description (filter out recently used)
     touch_pool = _TOUCH_BY_SURFACE.get(surface_key, [])
     if touch_pool:
-        result += rng.choice(touch_pool) + "。"
+        recent = _RECENT_TOUCH
+        if recent:
+            fresh = [t for t in touch_pool if t not in recent]
+            if fresh:
+                touch_pool = fresh
+        pick = rng.choice(touch_pool)
+        result += pick + "。"
 
-    # Append smell description
+    # Append smell description (filter out recently used)
     smell_pool = _SMELL_BY_BIOME.get(biome, _SMELL_BY_BIOME.get(surface_key, []))
     if smell_pool:
+        recent = _RECENT_TOUCH
+        if recent:
+            fresh = [s for s in smell_pool if s not in recent]
+            if fresh:
+                smell_pool = fresh
         result += rng.choice(smell_pool) + "。"
 
     # 海拔省略后模板可能留下"。。"
@@ -1958,6 +1973,7 @@ def render_establish(payload: dict, rng: random.Random) -> str:
 
 # ── module-level biome context for handlers that need it ─────────────
 _CURRENT_BIOME: str = ""
+_RECENT_TOUCH: set[str] = set()
 
 
 # ── handler registry ─────────────────────────────────────────────────

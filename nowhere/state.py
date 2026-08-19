@@ -147,6 +147,7 @@ class WorldState:
         s.recent_scenes = data.get("recent_scenes", [])
         s.journey_log = data.get("journey_log", [])
         s.postcards = data.get("postcards", [])
+        s.wilderness_depth_km = data.get("wilderness_depth_km", 0.0)
         s.radio_station = data.get("radio_station")
         if data.get("radio_pos"):
             s.radio_pos = tuple(data["radio_pos"])
