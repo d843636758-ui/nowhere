@@ -387,7 +387,8 @@ def _get_climate_zone(lat: float, elev: float = 0) -> str:
 
 
 def _check_phenology(dt: datetime, lat: float, rng: random.Random,
-                     biome: str | None = None, elev: float = 0) -> str | None:
+                     biome: str | None = None, elev: float = 0,
+                     lon: float = 0.0) -> str | None:
     """Check phenology events for current month/latitude. Returns text or None.
 
     Climate zone filtering: determines zone from latitude, maps to data band,
@@ -423,25 +424,59 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
     # Each entry is {"text": "...", "climate_zone": "...", "lat_band"?};
     # filter by zone and optional lat_band (Card 68: restrict subtropical plants)
     abs_lat = abs(lat)
-    candidates = []
+    _OCEAN_REGIONS = {
+        "西北太平洋": ("CN", "TW", "JP", "KR", "PH", "VN", "HK", "MO"),
+        "北大西洋": ("US", "MX", "CU", "JM", "HT", "DO", "PR", "BS"),
+    }
+    raw_candidates: list[tuple[str, str | None]] = []
     for e in month_events:
         if not isinstance(e, dict) or e.get("climate_zone") != zone:
             continue
         lb = e.get("lat_band")
         if lb and not (lb[0] <= abs_lat < lb[1]):
             continue
-        candidates.append(e["text"])
-    if not candidates:
+        # Card 73: ocean region constraint — typhoon cards only for coast/island/water
+        oc = e.get("ocean")
+        if oc:
+            if biome not in ("coast", "island", "water"):
+                continue
+            ccs = _OCEAN_REGIONS.get(oc)
+            if ccs:
+                cc_now = country.country_code_of(lat, lon)
+                if cc_now not in ccs:
+                    continue
+        raw_candidates.append((e["text"], e.get("humidity")))
+    if not raw_candidates:
         # Fallback: accept any dict entry (zone mismatch shouldn't happen)
         # but still respect lat_band constraints
-        candidates = []
         for e in month_events:
             if not isinstance(e, dict):
                 continue
             lb = e.get("lat_band")
             if lb and not (lb[0] <= abs_lat < lb[1]):
                 continue
-            candidates.append(e["text"])
+            # Card 73: ocean region constraint (fallback path)
+            oc = e.get("ocean")
+            if oc:
+                if biome not in ("coast", "island", "water"):
+                    continue
+                ccs = _OCEAN_REGIONS.get(oc)
+                if ccs:
+                    cc_now = country.country_code_of(lat, lon)
+                    if cc_now not in ccs:
+                        continue
+            raw_candidates.append((e["text"], e.get("humidity")))
+
+    # Card 74: tropical arid filtering — exclude humid cards for arid tropical locations
+    _ARID_TROPICAL_COUNTRIES = ("PE", "CL", "NA", "AO", "EG", "SA", "YE", "OM")
+    if band == "tropical" and biome in ("coast", "desert"):
+        cc_now = country.country_code_of(lat, lon)
+        if cc_now in _ARID_TROPICAL_COUNTRIES:
+            arid_filtered = [(t, h) for t, h in raw_candidates if h != "humid"]
+            if arid_filtered:
+                raw_candidates = arid_filtered
+
+    candidates = [t for t, _ in raw_candidates]
 
     # Card 58: biome filtering — desert/tundra excludes water-heavy content
     if biome in ("desert", "tundra"):
@@ -735,7 +770,7 @@ def _compute_timeaxes(dt: datetime, lat: float, lon: float,
             })
 
     # 4. Phenology (物候) — includes biological clock
-    pheno_text = _check_phenology(dt, lat, rng, biome=biome, elev=elev)
+    pheno_text = _check_phenology(dt, lat, rng, biome=biome, elev=elev, lon=lon)
     if pheno_text:
         layers.append({
             "priority": _TP_PHENOLOGY, "kind": "phenology",
@@ -3687,7 +3722,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # Build water feature description from offline data
     if water_features:
         _wf_lat = _state.pos[0] if _state.pos else 0
-        _wf_season = describe._season(_now.month, _wf_lat) if _now else ""
+        _wf_season = describe._season(_state.now().month, _wf_lat) if _state.now() else ""
         water_text = describe.render(
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
@@ -3774,6 +3809,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     # ── 5. Salience + describe ───────────────────────────────────────
     # 留白: 缓存命中且世界没变时,跳过 env 候选举的渲染;encounter 照常 roll
     sections: list[str] = []
+    _walk_cc = country.country_code_of(lat, lon)  # always available for sanity_check
     if not env_cached:
         # Card 53: gravity — check if walking near heavy place
         _heavy_nearby_walk = humanities.is_heavy_place(_state.place_name)
@@ -3784,7 +3820,6 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
         candidates = _build_salience_candidates(env, prev_env)
         # Card 69: build Situation for runtime content filtering
-        _walk_cc = country.country_code_of(lat, lon)
         _situation_walk = salience.build_situation(
             lat, lon, _state.place_name or "", env,
             now_month=now.month if now else None,
