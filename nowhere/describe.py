@@ -522,6 +522,19 @@ def _pick_scene(pool: list[str], name: str, rng: random.Random, ctx: dict) -> st
         cold_bad = ["雪崩", "冰川", "冻土", "极光", "冰裂缝"]
         filtered = [s for s in filtered if not any(k in s for k in cold_bad)]
 
+    # Card 69: summer/spring — exclude winter-specific scene content
+    # Prevents "积雪覆盖的林间小路" in August at 60°N
+    season = ctx.get("season", "")
+    if season in ("summer", "spring") and biome not in ("tundra", "glacier", "polar"):
+        _winter_scene_words = ["雪", "冰雪", "冰封", "冰面", "冰川", "冻", "冻土",
+                               "寒", "严寒", "霜", "积雪", "雪原"]
+        winter_filtered = [s for s in filtered if not any(w in s for w in _winter_scene_words)]
+        if winter_filtered:
+            filtered = winter_filtered
+        elif filtered:
+            # All scenes have winter words — return empty (skip this content)
+            return ""
+
     if not filtered:
         filtered = pool  # Fallback to unfiltered if all filtered out
 
@@ -1607,11 +1620,59 @@ def compose(sections: list[str], rng: random.Random, section_type: str = "walk")
     return _normalize_prose(result)
 
 
+# ── Card 69: notable place names from all data sources ──────────────
+_NOTABLE_PLACES_CACHE: set[str] | None = None
+
+
+def _load_notable_places() -> set[str]:
+    """Load place names from water features scenes and localcolor data.
+
+    These are places that could appear in rendered text from non-location
+    sources (water features, localcolor, art, etc.) and need to be checked
+    for place contradictions in sanity_check.
+    """
+    global _NOTABLE_PLACES_CACHE
+    if _NOTABLE_PLACES_CACHE is not None:
+        return _NOTABLE_PLACES_CACHE
+
+    places: set[str] = set()
+
+    # Water features scenes: top-level keys are place/river names
+    try:
+        fp = _SCENE_DIR / "water_features_scenes.json"
+        if fp.exists():
+            import json as _json
+            data = _json.loads(fp.read_text(encoding="utf-8"))
+            for key in data:
+                if isinstance(key, str) and len(key) < 20:
+                    places.add(key)
+    except Exception:
+        pass
+
+    # Localcolor files: top-level keys are place names
+    for lc_file in _SCENE_DIR.glob("localcolor_*.json"):
+        try:
+            import json as _json
+            data = _json.loads(lc_file.read_text(encoding="utf-8"))
+            for key in data:
+                if isinstance(key, str) and len(key) < 20:
+                    places.add(key)
+        except Exception:
+            pass
+
+    _NOTABLE_PLACES_CACHE = places
+    return places
+
+
 def sanity_check(text: str, env: dict) -> str:
     """Last-resort consistency check: fix obvious data-prose contradictions.
 
     Returns the (possibly patched) text. This is the final safety net,
     not the primary filtering mechanism — scene metadata handles that.
+
+    Card 69: expanded contradiction detection — season words vs season,
+    place names vs place, country names vs cc.  Contradicting sentences
+    are dropped and replaced with soft fillers.  "宁可少一句,不串一处".
     """
     if not text:
         return text
@@ -1625,6 +1686,9 @@ def sanity_check(text: str, env: dict) -> str:
     wind = weather.get("wind_ms", 0)
     season = env.get("_season", "")
     biome = env.get("biome", "")
+    place = env.get("_place", "")
+    cc = env.get("_cc", "")
+    temp_c = weather.get("temp_c", 20)
 
     # Storm: remove calm bird descriptions
     if wind >= 15:
@@ -1644,7 +1708,87 @@ def sanity_check(text: str, env: dict) -> str:
                 if old in text:
                     text = text.replace(old, new)
 
-    return text
+    # ── Card 69: expanded sentence-level contradiction detection ───────
+    # Split into sentences, check each for contradictions.
+    # Contradicting sentences are replaced with soft fillers.
+    _SOFT_FILLERS = [
+        "你顿了顿,又看了一眼。",
+        "风吹过来,你回过神。",
+        "脚步没停。",
+        "你眨了眨眼,继续走。",
+        "空气里有什么变了,你说不上来。",
+    ]
+
+    # Build location scene keys for place contradiction detection
+    _location_scenes = _load_location_scenes()
+    _scene_places = set(_location_scenes.keys())
+    # Expand with place names from water features scenes and localcolor
+    _scene_places.update(_load_notable_places())
+
+    # Country name lookup (reverse of _COUNTRY_ZH)
+    _cc_to_name: dict[str, str] = {}
+    for _code, _name in _COUNTRY_ZH.items():
+        _cc_to_name[_code] = _name
+
+    sentences = _split_sentences(text)
+
+    changed = False
+    filler_idx = 0
+
+    for i, sent in enumerate(sentences):
+        if not sent.strip():
+            continue
+
+        # ── Season contradiction ──
+        if season in ("summer", "spring") and biome not in ("tundra", "glacier", "polar"):
+            _winter_words = ["雪", "冰", "冻", "寒", "严寒", "霜"]
+            if any(w in sent for w in _winter_words):
+                # Allow if temperature is genuinely cold (< 5°C)
+                if temp_c >= 5:
+                    sentences[i] = _SOFT_FILLERS[filler_idx % len(_SOFT_FILLERS)]
+                    filler_idx += 1
+                    changed = True
+                    continue
+
+        # ── Place name contradiction ──
+        if place and _scene_places:
+            wrong_places = [p for p in _scene_places if p in sent and p != place]
+            if wrong_places:
+                sentences[i] = _SOFT_FILLERS[filler_idx % len(_SOFT_FILLERS)]
+                filler_idx += 1
+                changed = True
+                continue
+
+        # ── Country name contradiction ──
+        if cc:
+            current_country_name = _cc_to_name.get(cc, "")
+            for other_cc, other_name in _cc_to_name.items():
+                if other_cc == cc:
+                    continue
+                if other_name in sent and current_country_name not in sent:
+                    sentences[i] = _SOFT_FILLERS[filler_idx % len(_SOFT_FILLERS)]
+                    filler_idx += 1
+                    changed = True
+                    break
+
+    if not changed:
+        return text
+
+    result = "".join(sentences)
+    if result and not result.endswith(("。", "！", "？", "」")):
+        result += "。"
+    return result
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences at CJK sentence boundaries.
+
+    Keeps the punctuation with each sentence.
+    """
+    if not text:
+        return [text]
+    parts = re.split(r'(?<=[。！？])', text)
+    return [p for p in parts if p]
 
 
 # ── per-kind renderers ───────────────────────────────────────────────
@@ -2475,13 +2619,27 @@ def render_establish(payload: dict, rng: random.Random) -> str:
     # ── Try location-specific scenes first (china/world enhanced, soundscape, taste) ──
     location_scenes = _load_location_scenes()
     if place in location_scenes:
-        scene_text = rng.choice(location_scenes[place])
-        parts = [header, scene_text]
-        # 附近地标
-        nearby_places = payload.get("nearby_places", "")
-        if nearby_places:
-            parts.append(nearby_places)
-        return "".join(parts)
+        _loc_pool = location_scenes[place]
+        # Card 69: filter winter scenes from location pool in summer/spring
+        if season in ("summer", "spring") and biome not in ("tundra", "glacier", "polar"):
+            _winter_loc_words = ["雪", "冰雪", "冰封", "冰面", "冰川", "冻", "冻土",
+                                 "寒", "严寒", "霜", "积雪", "雪原"]
+            _loc_filtered = [s for s in _loc_pool if not any(w in s for w in _winter_loc_words)]
+            if _loc_filtered:
+                _loc_pool = _loc_filtered
+            else:
+                # All scenes are winter scenes — skip location scenes entirely,
+                # fall through to seasonal or generic rendering below
+                _loc_pool = []
+        if _loc_pool:
+            scene_text = rng.choice(_loc_pool)
+            parts = [header, scene_text]
+            # 附近地标
+            nearby_places = payload.get("nearby_places", "")
+            if nearby_places:
+                parts.append(nearby_places)
+            return "".join(parts)
+        # Fall through to seasonal/generic rendering if all location scenes filtered
 
     if precip in _WEATHER_TO_SCENE:
         scene_name = _WEATHER_TO_SCENE[precip]
