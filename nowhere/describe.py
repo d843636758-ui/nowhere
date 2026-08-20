@@ -26,6 +26,7 @@ from typing import Sequence
 # ── scene files (literary descriptions per biome/weather) ─────────────
 _SCENE_DIR = pathlib.Path(__file__).resolve().parent / "data"
 _SCENE_CACHE: dict[str, list[str]] = {}
+_WF_SCENES_CACHE: dict | None = None  # water_features_scenes.json
 
 # Valid biome tags for backward-compatible stripping from old scene files
 _VALID_BIOME_TAGS: set[str] = {
@@ -2640,11 +2641,25 @@ def _render_humanities(payload: dict, prev: dict | None, rng: random.Random) -> 
     return payload.get("text", "")
 
 
+def _load_wf_scenes() -> dict:
+    """Load water_features_scenes.json (per-river/lake scene data). Cached."""
+    global _WF_SCENES_CACHE
+    if _WF_SCENES_CACHE is None:
+        fp = _SCENE_DIR / "water_features_scenes.json"
+        if fp.exists():
+            import json as _json
+            _WF_SCENES_CACHE = _json.loads(fp.read_text(encoding="utf-8"))
+        else:
+            _WF_SCENES_CACHE = {}
+    return _WF_SCENES_CACHE
+
+
 def _render_water_features(payload: dict, prev: dict | None, rng: random.Random) -> str:
     """水文描写: 河流/湖泊/瀑布/溪流。
 
     Card 33: reads biome-specific product file (scene_water_{biome}.txt),
     then filters by structured card metadata (seasons, lat_band).
+    Card 65: checks water_features_scenes.json for named water bodies first.
     """
     biome = _CURRENT_BIOME
     features = payload if isinstance(payload, list) else []
@@ -2652,11 +2667,14 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
     # Build feature set from actual data
     feat_set = set()
     has_named = False
+    named_water = ""
     for f in features:
         ftype = f.get("type", "") or ""
         fname = f.get("name", "") or ""
         if fname and fname != "无名水域":
             has_named = True
+            if not named_water:
+                named_water = fname
         if "瀑布" in ftype or "瀑布" in fname:
             feat_set.add("waterfall")
         if any(k in ftype for k in ("河", "溪", "江", "river")):
@@ -2668,6 +2686,25 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
             feat_set.add("river")
         else:
             feat_set.add("lake")
+
+    # Card 65: try per-water-body scenes first (water_features_scenes.json)
+    wf_scenes = _load_wf_scenes()
+    if named_water and wf_scenes:
+        # Try exact match, then substring match
+        entry = wf_scenes.get(named_water)
+        if not entry:
+            for key in wf_scenes:
+                if key in named_water or named_water in key:
+                    entry = wf_scenes[key]
+                    break
+        if entry and isinstance(entry, dict):
+            segments = entry.get("segments", {})
+            if segments:
+                seg_name = rng.choice(list(segments.keys()))
+                seg = segments[seg_name]
+                scene_text = seg.get("scene", "")
+                if scene_text:
+                    return scene_text
 
     # Card 33: read biome-specific product file directly
     if biome:

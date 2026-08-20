@@ -1594,15 +1594,30 @@ def _wide_coast_scan(lat: float, lon: float) -> tuple[float | None, float | None
     Returns (min_km, bearing_deg) or (None, None).
     Used only for rejection text — precision not critical.
     """
+    from nowhere import terrain as _t
+    origin_elev = _t.elevation(lat, lon)
+    # Card 64: origin-elevation plausibility gate.
+    # Standing above 3000 m (Himalayas/Tibet/Andes): real ocean cannot
+    # be within 500 km — coarse-grid "water_ocean" cells closer than
+    # that are grid artifacts with garbage elevations.
+    min_believable_km = 500.0 if origin_elev > 3000 else 0.0
+
     min_km: float | None = None
     min_bearing: float | None = None
     for i in range(8):
         bearing = i * 45.0
         d = 50.0
         while d <= 5000.0:
-            from nowhere import terrain as _t
             lat2, lon2 = _t.destination(lat, lon, bearing, d)
             if _t.surface(lat2, lon2) == "water_ocean":
+                # Card 64: elevation gate for sampled point
+                if _t.elevation(lat2, lon2) > 1000:
+                    d += 50.0
+                    continue
+                # Card 64: origin-elevation gate
+                if d < min_believable_km:
+                    d += 50.0
+                    continue
                 if min_km is None or d < min_km:
                     min_km = d
                     min_bearing = bearing
@@ -1623,6 +1638,13 @@ _FAR_COAST_VARIANTS: list[str] = [
     "海在{dir}。远着呢，上千公里。",
     "往{dir}走，全是陆地。海不在这边，隔着上千公里的地。",
     "你朝着海的方向走了几步。海在{dir}，但太远了，上千公里。",
+]
+
+# Card 64: timezone jump acknowledgement variants (not smoothing the jump)
+_TZ_JUMP_VARIANTS: list[str] = [
+    "你过了道界。表上的时间跳了一截。",
+    "手机自己把时区换了,你看着它跳。",
+    "一步之间,时间变了。你不意外——边界就是这样。",
 ]
 
 
@@ -2039,6 +2061,10 @@ def _check_festival_hit(
 
         if fest_place and place_name == fest_place:
             place_hits.append(fest)
+        elif fest_place:
+            # Card 66 fix: place-bound festival, place doesn't match → skip
+            # (don't fall through to country/lat buckets)
+            continue
         elif fest_country and country_code and fest_country == country_code:
             country_hits.append(fest)
         elif window_type == "lat_rule":
@@ -2056,7 +2082,191 @@ def _check_festival_hit(
 
     # Check if it's the eve (day before festival start)
     # For simplicity, just pick a random card
-    return rng.choice(cards)
+    card = rng.choice(cards)
+    # Card 66 fix: prepend festival name announcement
+    fest_name = fest.get("name", "")
+    if fest_name:
+        _ann_variants = [
+            f"今天是{fest_name}。",
+            f"{fest_name}。",
+            f"你到的这天,正是{fest_name}。",
+        ]
+        card = f"{rng.choice(_ann_variants)}{card}"
+    return card
+
+
+def _announce_festival_name(fest_name: str, rng: random.Random) -> str:
+    """Generate a festival name announcement prefix (3 variants)."""
+    _ANNOUNCE_VARIANTS = [
+        f"今天是{fest_name}。",
+        f"{fest_name}。",
+        f"你到的这天,正是{fest_name}。",
+    ]
+    return rng.choice(_ANNOUNCE_VARIANTS)
+
+
+def _announce_festival_crossing(fest_name: str, rng: random.Random) -> str:
+    """Generate a festival crossing announcement (3 variants).
+
+    Used when wait crosses into a festival date (not arrival).
+    """
+    _CROSSING_VARIANTS = [
+        f"街上忽然多了一倍的人——你才想起来,今晚是{fest_name}。",
+        f"远处传来鼓声。你愣了一下:今天是{fest_name}。",
+        f"空气里多了烟火味。{fest_name},到了。",
+    ]
+    return rng.choice(_CROSSING_VARIANTS)
+
+
+def _check_near_festival(
+    place_name: str,
+    country_code: str | None,
+    lat: float,
+    sim_time: datetime | None,
+    rng: random.Random,
+    days: int = 7,
+) -> str | None:
+    """Check if a festival starts within `days` days (not today).
+
+    Returns preview text like "三天后是七夕。" or None.
+    """
+    if sim_time is None:
+        return None
+
+    festivals = _load_festivals()
+    if not festivals:
+        return None
+
+    sim_date = sim_time.astimezone(ZoneInfo("Asia/Shanghai")).date()
+
+    for fest in festivals:
+        window = fest.get("window", {})
+        wtype = window.get("type", "fixed")
+        name = fest.get("name", "")
+        if not name:
+            continue
+
+        start_date = None
+
+        if wtype == "fixed":
+            start = window.get("start")
+            if start and len(start) >= 2:
+                try:
+                    start_date = _date(sim_date.year, start[0], start[1])
+                except (ValueError, IndexError):
+                    pass
+
+        elif wtype in ("lunar", "hijri"):
+            years = window.get("years", {})
+            year_str = str(sim_date.year)
+            md = years.get(year_str)
+            if md and len(md) >= 2:
+                try:
+                    start_date = _date(sim_date.year, md[0], md[1])
+                except (ValueError, IndexError):
+                    pass
+
+        elif wtype == "lat_rule":
+            base_lat = window.get("base_lat", 35.0)
+            base_date = window.get("base_date", [3, 24])
+            days_per_deg = window.get("days_per_deg", 2.6)
+            try:
+                base = _date(sim_date.year, base_date[0], base_date[1])
+            except (ValueError, IndexError):
+                base = None
+            if base is not None:
+                from datetime import timedelta
+                lat_offset = (lat - base_lat) * days_per_deg
+                start_date = base + timedelta(days=int(lat_offset))
+
+        if start_date is None:
+            continue
+
+        diff = (start_date - sim_date).days
+        if 1 <= diff <= days:
+            # Check place/country relevance
+            fest_place = fest.get("place", "")
+            fest_country = fest.get("country", "")
+            if fest_place and place_name == fest_place:
+                pass
+            elif fest_place:
+                # Card 66 fix: place-bound festival, place doesn't match → skip
+                continue
+            elif fest_country and country_code and fest_country == country_code:
+                pass
+            elif wtype == "lat_rule":
+                pass
+            else:
+                continue
+
+            if diff == 1:
+                return f"明天是{name}。"
+            elif diff == 2:
+                return f"后天是{name}。"
+            else:
+                return f"{diff}天后是{name}。"
+
+    return None
+
+
+# ── Card 66: Festival atmosphere for look/walk rendering ─────────────
+
+_FESTIVAL_LOOK_KEYWORDS: dict[str, list[str]] = {
+    "中元节": ["河灯", "纸船", "灯笼"],
+    "雪顿节": ["晒佛", "酸奶"],
+    "春节": ["灯笼", "炮仗纸", "福字"],
+    "元宵节": ["灯笼", "花灯"],
+    "端午节": ["龙舟", "粽叶"],
+    "七夕": ["花", "灯"],
+    "中秋节": ["月饼", "灯笼"],
+    "泼水节": ["水", "泼水"],
+    "水灯节": ["水灯", "灯笼"],
+    "排灯节": ["油灯", "灯笼"],
+    "亡灵节": ["万寿菊", "蜡烛"],
+}
+
+
+def _get_festival_context(
+    place_name: str,
+    country_code: str | None,
+    lat: float,
+    sim_time: datetime | None,
+) -> dict | None:
+    """Get festival atmosphere context for rendering (look/walk).
+
+    Unlike _check_festival_hit, this does NOT select cards — it returns
+    metadata for the rendering layer to weave into descriptions.
+
+    Card 66 fix: place-bound festivals are strictly place-scoped.
+    """
+    if sim_time is None:
+        return None
+
+    festivals = _load_festivals()
+    if not festivals:
+        return None
+
+    sim_date = sim_time.astimezone(ZoneInfo("Asia/Shanghai")).date()
+
+    for fest in festivals:
+        if not _festival_in_window(fest, sim_date, lat):
+            continue
+        fest_place = fest.get("place", "")
+        fest_name = fest.get("name", "")
+        if not fest_name:
+            continue
+
+        # Place-bound: strict match only
+        if fest_place and place_name != fest_place:
+            continue
+        # Country-bound: skip (atmosphere is for local festivals)
+        if not fest_place:
+            continue
+
+        keywords = _FESTIVAL_LOOK_KEYWORDS.get(fest_name, [])
+        return {"name": fest_name, "keywords": keywords}
+
+    return None
 
 
 def _build_salience_candidates(
@@ -2144,10 +2354,32 @@ def _build_salience_candidates(
 
 
 async def open_door_impl(to: str | None = None, resume: bool = False, traveler_name: str | None = None, blind: bool = False, key: str | None = None, intent: str | None = None) -> dict:
-    """Open the door and land somewhere."""
-    async with _action_lock:
-        async with _door_lock:
-            return await _open_door_locked(to, resume=resume, traveler_name=traveler_name, blind=blind, key=key, intent=intent)
+    """Open the door and land somewhere.
+
+    Card 64: wraps _open_door_locked with rollback protection.
+    If the landing crashes mid-way (leaving half-initialized state),
+    pos/biome/env are rolled back to the pre-landing snapshot.
+    """
+    _snap = {
+        "pos": _state.pos,
+        "biome": _state.biome,
+        "last_env": _state.last_env,
+        "place_name": _state.place_name,
+        "landed_at": _state.landed_at,
+        "elapsed_hours": _state.elapsed_hours,
+    }
+    try:
+        async with _action_lock:
+            async with _door_lock:
+                return await _open_door_locked(to, resume=resume, traveler_name=traveler_name, blind=blind, key=key, intent=intent)
+    except Exception:
+        _state.pos = _snap["pos"]
+        _state.biome = _snap["biome"]
+        _state.last_env = _snap["last_env"]
+        _state.place_name = _snap["place_name"]
+        _state.landed_at = _snap["landed_at"]
+        _state.elapsed_hours = _snap["elapsed_hours"]
+        raise
 
 
 async def _open_door_locked(to: str | None = None, resume: bool = False, traveler_name: str | None = None, blind: bool = False, key: str | None = None, intent: str | None = None) -> dict:
@@ -2382,7 +2614,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
 
     # Build water feature description from offline data
     if water_features:
-        _wf_season = describe._season(_now.month, lat) if _now else ""
+        _wf_season = describe._season(_state.now().month, lat) if _state.now() else ""
         water_text = describe.render(
             "water_features", water_features, None, _rng,
             biome=_state.biome or "", elevation=env.get("elevation", 0),
@@ -2411,7 +2643,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     marine_text = ""
     if _rng.random() < 0.3:
         try:
-            m = await asyncio.wait_for(water.marine_life(lat, lon, _rng), timeout=8.0)
+            m = await asyncio.wait_for(water.marine_life(lat, lon, _rng, biome=_state.biome), timeout=8.0)
             if m:
                 marine_text = f"{m['common_name']}。{m['distance_m']}米外。{m['scene']}"
         except Exception:
@@ -2532,6 +2764,12 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
         if fest_text and fest_text not in set(_state.recent_scenes):
             sections.append(fest_text)
             _state.recent_scenes.append(fest_text)
+        # ── Card 66: 近节预告 (7天内有节→报一句) ───────────────
+        if not fest_text:
+            near_text = _check_near_festival(place_name, cc, lat, _now, _rng)
+            if near_text and near_text not in set(_state.recent_scenes):
+                sections.append(near_text)
+                _state.recent_scenes.append(near_text)
 
     # ── 六根时间轴(Card 46): landing 版,最多2层 ─────────────────
     if _now is not None:
@@ -3159,9 +3397,13 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
 
     # Card 50: fatigue>6 caps distance to 3km
     _max_dist = walk_mod._DIST_MAX_FATIGUED if _state.fatigue > 6.0 else walk_mod._DIST_MAX
+    # Card 64: snapshot timezone before step for jump detection
+    _tz_before = _tf.timezone_at(lat=_state.pos[0], lng=_state.pos[1]) if _state.pos else None
     step_result = walk_mod.step(_state, bearing, semantic, distance_km, max_dist=_max_dist)
     # NOTE: time accumulation is handled inside walk.step() using actual
     # distance and speed — do NOT add time here (would double-count).
+    # Card 64: detect timezone jump (do NOT smooth — borders are real)
+    _tz_after = _tf.timezone_at(lat=_state.pos[0], lng=_state.pos[1]) if _state.pos else None
 
     # ── Card 51: annotate step_result with water body label ──────────
     if semantic == "toward_sea" and not step_result.get("blocked"):
@@ -3243,6 +3485,11 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         elif sea_km <= 10:
             sea_note = f"风里有一丁点咸味——海在 {round(sea_km)} 公里外。"
 
+    # Card 64: timezone jump — acknowledge without smoothing
+    _tz_jump_note = ""
+    if _tz_before and _tz_after and _tz_before != _tz_after:
+        _tz_jump_note = _rng.choice(_TZ_JUMP_VARIANTS)
+
     # ── 3. Gather new point env ──────────────────────────────────────
     lat, lon = _state.pos
     now = _state.now()
@@ -3315,7 +3562,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     marine_text = ""
     if _rng.random() < 0.3:
         try:
-            m = await asyncio.wait_for(water.marine_life(lat, lon, _rng), timeout=8.0)
+            m = await asyncio.wait_for(water.marine_life(lat, lon, _rng, biome=_state.biome), timeout=8.0)
             if m:
                 marine_text = f"{m['common_name']}。{m['distance_m']}米外。{m['scene']}"
         except Exception:
@@ -3444,6 +3691,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         sections=sections,
     )
     _sections_before_actions = len(sections)
+    _land_encounter_text = ""
     for act in ACTIONS:
         if act.should(ctx):
             # Card 48: resolve() for side effects before render()
@@ -3453,6 +3701,18 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             t = act.render(ctx)
             if t:
                 sections.append(t)
+                # Card 67: track land encounter for marine exclusion
+                if act.name == "encounter":
+                    _land_encounter_text = t
+
+    # ── Card 67: marine/land encounter mutual exclusion ───────────────
+    # If both marine life and land encounter fired in the same step,
+    # drop marine_text (prefer land encounter -- we're walking on land).
+    if marine_text and _land_encounter_text:
+        try:
+            sections.remove(marine_text)
+        except ValueError:
+            pass
 
     # ── Card 52: filter "ask" hints — only if knowledge layer has content ──
     sections = _filter_ask_hints(sections)
@@ -3508,6 +3768,8 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
             prose = far_note + prose
         if sea_note:
             prose += sea_note
+        if _tz_jump_note:
+            prose += _tz_jump_note
         if direction_invalid:
             prose = f"「{direction}」不是方向，按原方向走了。" + prose
         if step_result.get("clamped"):
@@ -3913,15 +4175,119 @@ async def look_around_impl() -> dict:
 
 @_serialized_action
 async def wait_impl(hours: float = 1.0) -> dict:
-    """原地待着,让时间流过去。每小时感知一次变化。"""
+    """原地待着,让时间流过去。
+
+    - hours ≤ 12: 逐小时感知（原有模式）
+    - hours > 12: "长待"模式，按天出摘要，上限720小时（30天）
+    - 任何钳制都在文本里明说，不静默改数
+    """
     global _state, _rng
 
     if _state.pos is None:
         return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
 
-    hours = max(0.25, min(hours, 12.0))
+    # ── 钳制：上限720h（30天），下限0.25h ────────────────────────────
+    _MAX_WAIT = 720.0
+    raw_hours = hours
+    hours = max(0.25, min(hours, _MAX_WAIT))
+    clamped = (raw_hours != hours)
     lat, lon = _state.pos
 
+    # Card 66: track start date for festival crossing detection
+    _start_sim_date = None
+    if _state.now() is not None:
+        _start_sim_date = _state.now().astimezone(ZoneInfo("Asia/Shanghai")).date()
+
+    # ── 长待模式（>12小时）───────────────────────────────────────────
+    if hours > 12.0:
+        days = int(hours // 24)
+        leftover = hours - days * 24
+
+        # Advance clock in bulk
+        _state.elapsed_hours += hours
+        # Body state: process in 24h chunks
+        _is_indoor = _state.biome == "city" and (_state.last_env or {}).get("weather", {}).get("precip", "none") != "storm"
+        for _ in range(days):
+            _update_body_state_wait(24.0, _is_indoor, _rng)
+        if leftover > 0:
+            _update_body_state_wait(leftover, _is_indoor, _rng)
+
+        # Gather env once at end
+        env, _ = await _gather_env_cached(lat, lon, _state.now())
+
+        # Build day summary
+        sections = []
+        if days > 0:
+            sections.append(f"你在这待了{days}天。")
+        if leftover >= 1:
+            sections.append(f"又过了{int(leftover)}个小时。")
+
+        # Season snapshot
+        end_now = _state.now()
+        if end_now:
+            end_local = end_now.astimezone(ZoneInfo("Asia/Shanghai"))
+            _season_zh = {12: "冬", 1: "冬", 2: "冬", 3: "春", 4: "春", 5: "春",
+                          6: "夏", 7: "夏", 8: "夏", 9: "秋", 10: "秋", 11: "秋"}
+            sections.append(f"现在是{_season_zh.get(end_local.month, '')}天。")
+
+        # Clamp disclosure
+        if clamped:
+            if raw_hours > _MAX_WAIT:
+                sections.append(f"这个世界一次只肯走{_MAX_WAIT / 24:.0f}天。")
+            elif raw_hours < 0.25:
+                sections.append("最少也得待一刻钟。")
+
+        text = "\n".join(sections)
+        text = describe._normalize_prose(text)
+
+        # Festival crossing detection
+        _festival_cross_text = None
+        if _start_sim_date is not None and end_now is not None:
+            _end_sim_date = end_now.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            if _end_sim_date > _start_sim_date:
+                cc = country.country_code_of(lat, lon)
+                _festival_cross_text = _check_festival_hit(
+                    _state.place_name or "", cc, lat, end_now, _rng
+                )
+        if _festival_cross_text:
+            # Use crossing variant if we can extract the festival name
+            fest_name = ""
+            festivals = _load_festivals()
+            if festivals and end_now is not None:
+                sim_date = end_now.astimezone(ZoneInfo("Asia/Shanghai")).date()
+                for fest in festivals:
+                    if _festival_in_window(fest, sim_date, lat):
+                        fest_name = fest.get("name", "")
+                        break
+            if fest_name:
+                text = f"{text}\n{_announce_festival_crossing(fest_name, _rng)}"
+            else:
+                text = f"{text}\n{_festival_cross_text}"
+
+        # Update state
+        _state.last_env = {
+            "elevation": env.get("elevation"),
+            "surface": env.get("surface"),
+            "weather": env.get("weather"),
+            "sky": env.get("sky"),
+            "radio": env.get("radio"),
+            "water_features": env.get("water_features"),
+        }
+        _state.last_text = text
+        _record_footprint("wait", text)
+        _state.save()
+
+        return {
+            "text": text,
+            "data": {
+                "waited_hours": hours,
+                "local_time": _state.now().isoformat() if _state.now() else None,
+                "phase": env.get("sky", {}).get("phase"),
+                "mode": "long_wait",
+            },
+        }
+
+    # ── 短待模式（≤12小时）：原有逐小时逻辑 ──────────────────────────
     # Scene file for "sitting still" moments
     _wait_scenes = [
         "你坐着没动。影子挪了方向。",
@@ -3992,6 +4358,18 @@ async def wait_impl(hours: float = 1.0) -> dict:
         prev_env = env
         h += 1
 
+    # Card 66: 节日穿越 — wait跨入节日窗口时触发
+    _festival_cross_text = None
+    if _start_sim_date is not None:
+        _end_now = _state.now()
+        if _end_now is not None:
+            _end_sim_date = _end_now.astimezone(ZoneInfo("Asia/Shanghai")).date()
+            if _end_sim_date > _start_sim_date:
+                cc = country.country_code_of(lat, lon)
+                _festival_cross_text = _check_festival_hit(
+                    _state.place_name or "", cc, lat, _end_now, _rng
+                )
+
     # 留白: 缓存命中且世界没变 → 不再逐项描述
     if quiet:
         text = _rng.choice(_QUIET_WAIT)
@@ -4021,6 +4399,30 @@ async def wait_impl(hours: float = 1.0) -> dict:
 
         text = "\n".join(sections)
         text = describe._normalize_prose(text)
+
+    # Card 66: append festival crossing text (use crossing variant)
+    if _festival_cross_text:
+        fest_name = ""
+        festivals = _load_festivals()
+        if festivals:
+            _end_now2 = _state.now()
+            if _end_now2 is not None:
+                sim_date = _end_now2.astimezone(ZoneInfo("Asia/Shanghai")).date()
+                for fest in festivals:
+                    if _festival_in_window(fest, sim_date, lat):
+                        fest_name = fest.get("name", "")
+                        break
+        if fest_name:
+            text = f"{text}\n{_announce_festival_crossing(fest_name, _rng)}"
+        else:
+            text = f"{text}\n{_festival_cross_text}"
+
+    # Clamp disclosure for short waits
+    if clamped:
+        if raw_hours > _MAX_WAIT:
+            text = f"{text}\n这个世界一次只肯走{_MAX_WAIT / 24:.0f}天。"
+        elif raw_hours < 0.25:
+            text = f"{text}\n最少也得待一刻钟。"
 
     # Update state
     _state.last_env = {
@@ -5493,6 +5895,16 @@ def look_impl(direction: str) -> dict:
         parts.append("地势在升高")
     elif samples[2]["elevation"] < samples[0]["elevation"] - 200:
         parts.append("地势在走低")
+
+    # Card 66: festival atmosphere in look
+    _now_look = _state.now()
+    _fest_ctx = _get_festival_context(
+        _state.place_name or "", country.country_code_of(lat, lon), lat, _now_look,
+    )
+    if _fest_ctx:
+        _fk = _fest_ctx.get("keywords", [])
+        if _fk:
+            parts.append(f"空气里有{_fk[0]}的痕迹")
 
     text = "，".join(parts) + "。"
 

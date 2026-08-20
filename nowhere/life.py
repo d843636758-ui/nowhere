@@ -151,6 +151,8 @@ _TROPICAL_KEYWORDS = (
 # Biome categories for filtering
 _TROPICAL_BIOMES = frozenset({"coast", "rainforest", "island"})
 _ALPINE_BIOMES = frozenset({"mountain", "tundra", "volcano"})
+# Marine biomes -- used by water.marine_life for consistency check
+_MARINE_BIOMES = frozenset({"coast", "ocean", "island"})
 
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -210,6 +212,7 @@ async def nearby(
             "order": "desc",
             "order_by": "observed_on",
             "locale": "zh-CN",  # 俗名要中文的
+            "captive": "false",  # Card 67: filter aquarium/seafood-market records
         }
     )
     url = f"https://api.inaturalist.org/v1/observations?{params}"

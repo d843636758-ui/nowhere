@@ -98,6 +98,11 @@ def water_ahead_km(lat: float, lon: float, bearing_deg: float, max_km: float = 2
     while d <= max_km:
         lat2, lon2 = terrain.destination(lat, lon, bearing_deg, d)
         if terrain.surface(lat2, lon2) == "water_ocean":
+            # Card 64: coarse-grid false-ocean gate.  Real ocean is at sea
+            # level; "water_ocean" above 1000 m is a grid artifact.
+            if terrain.elevation(lat2, lon2) > 1000:
+                d += 1.0
+                continue
             return d
         d += 1.0
     return None

@@ -227,22 +227,36 @@ def _offline_marine(lat: float, rng: random.Random) -> dict:
     return {"common_name": name, "distance_m": dist, "scene": scene}
 
 
-async def marine_life(lat: float, lon: float, rng: random.Random) -> dict | None:
+_MARINE_BIOMES = frozenset({"coast", "ocean", "island"})
+
+
+async def marine_life(lat: float, lon: float, rng: random.Random, *, biome: str | None = None) -> dict | None:
     """Find a nearby marine wildlife observation.
 
     Tries iNaturalist API first, falls back to offline latitude-based scenes.
     Returns {"common_name", "distance_m", "scene"} or None.
+
+    Guard order (first-match blocks):
+    1. terrain.is_water -- land points always None (online+offline)
+    2. biome consistency -- marine life only in coast/ocean/island biomes
+    3. iNat captive=false -- filters aquarium/seafood-market observations
     """
-    # Only for water points
+    # Guard 1: only for water points (blocks both online and offline paths)
     if not terrain.is_water(lat, lon):
+        return None
+
+    # Guard 2: biome consistency -- marine creatures only in marine biomes
+    if biome is not None and biome not in _MARINE_BIOMES:
         return None
 
     # Try online first
     try:
+        # Guard 3: captive=false filters aquarium/seafood-market observations
         params = (
             "lat={}&lng={}&radius={}&per_page=20"
             "&order=desc&order_by=observed_on&locale=zh-CN"
             "&iconic_taxa=Actinopterygii,Mollusca,Crustacea,Cnidaria,Reptilia,Mammalia"
+            "&captive=false"
         ).format(lat, lon, 15)
         url = f"https://api.inaturalist.org/v1/observations?{params}"
         data = await providers.fetch_json(url, source="inaturalist", cache_ttl=300, timeout=8.0)

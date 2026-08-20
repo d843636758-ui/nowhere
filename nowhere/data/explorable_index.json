@@ -706,11 +706,7 @@
       "layers": {
         "localcolor": true,
         "knowledge": true,
-        "food": true
-      }
-    },
-    "克罗地亚海岸": {
-      "layers": {
+        "food": true,
         "seasonal": true
       }
     },
@@ -827,16 +823,6 @@
       "layers": {
         "humanities": {
           "events": 1
-        }
-      }
-    },
-    "列宁格勒": {
-      "lat": 59.93,
-      "lon": 30.32,
-      "layers": {
-        "humanities": {
-          "events": 1,
-          "people": 1
         }
       }
     },
@@ -3182,16 +3168,6 @@
         "seasonal": true
       }
     },
-    "德国格尔利茨": {
-      "lat": 51.15,
-      "lon": 14.97,
-      "layers": {
-        "humanities": {
-          "works": 1
-        },
-        "films": 1
-      }
-    },
     "德纳利": {
       "lat": 63.0692,
       "lon": -151.007,
@@ -3770,7 +3746,10 @@
         "humanities": {
           "works": 1
         },
-        "films": 1
+        "films": 1,
+        "scene": [
+          "world_enhanced"
+        ]
       }
     },
     "暴风雨·上海": {
@@ -3870,13 +3849,6 @@
         "knowledge": true
       }
     },
-    "杜拜": {
-      "layers": {
-        "scene": [
-          "world_enhanced"
-        ]
-      }
-    },
     "杭州": {
       "lat": 30.2741,
       "lon": 120.1551,
@@ -3949,7 +3921,8 @@
         "localcolor": true,
         "humanities": {
           "works": 1
-        }
+        },
+        "films": 1
       }
     },
     "格尔尼卡": {
@@ -4195,13 +4168,6 @@
         "humanities": {
           "events": 1
         }
-      }
-    },
-    "法国普罗旺斯": {
-      "layers": {
-        "scene": [
-          "world_enhanced"
-        ]
       }
     },
     "法罗岛": {
@@ -4905,13 +4871,6 @@
         ]
       }
     },
-    "突尼斯": {
-      "layers": {
-        "knowledge": true,
-        "films": 1,
-        "food": true
-      }
-    },
     "突尼斯城": {
       "lat": 36.8065,
       "lon": 10.1815,
@@ -4926,7 +4885,9 @@
           "events": 2,
           "people": 1
         },
-        "knowledge": true
+        "knowledge": true,
+        "films": 1,
+        "food": true
       }
     },
     "突尼斯撒哈拉": {
@@ -5391,14 +5352,6 @@
         "souvenirs": true
       }
     },
-    "莫尔斯比港": {
-      "layers": {
-        "scene": [
-          "world_enhanced"
-        ],
-        "souvenirs": true
-      }
-    },
     "莫斯科": {
       "lat": 55.7558,
       "lon": 37.6173,
@@ -5640,15 +5593,6 @@
         "knowledge": true,
         "historical": 3,
         "art": 4
-      }
-    },
-    "西西里": {
-      "lat": 37.5994,
-      "lon": 14.0154,
-      "layers": {
-        "humanities": {
-          "works": 1
-        }
       }
     },
     "西西里岛": {
@@ -5907,7 +5851,10 @@
           "events": 2,
           "people": 1
         },
-        "knowledge": true
+        "knowledge": true,
+        "scene": [
+          "world_enhanced"
+        ]
       }
     },
     "道后温泉": {
@@ -6301,11 +6248,7 @@
       "layers": {
         "localcolor": true,
         "knowledge": true,
-        "flora": true
-      }
-    },
-    "阿塔卡马沙漠": {
-      "layers": {
+        "flora": true,
         "seasonal": true
       }
     },
@@ -7060,6 +7003,174 @@
           "world_enhanced"
         ]
       }
+    },
+    "格雷梅": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 38.64,
+      "lon": 34.83
+    },
+    "阿格拉": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 27.18,
+      "lon": 78.02
+    },
+    "波士顿": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 42.36,
+      "lon": -71.06
+    },
+    "长城": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 40.4319,
+      "lon": 116.5704
+    },
+    "巴黎圣母院": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 48.853,
+      "lon": 2.3499
+    },
+    "罗马斗兽场": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 41.8902,
+      "lon": 12.4922
+    },
+    "比萨斜塔": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 43.723,
+      "lon": 10.3966
+    },
+    "米拉之家": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 41.3952,
+      "lon": 2.1619
+    },
+    "自由女神": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 40.6892,
+      "lon": -74.0445
+    },
+    "尼亚加拉瀑布": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 43.0896,
+      "lon": -79.0849
+    },
+    "蓝湖温泉": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 63.8804,
+      "lon": -22.4495
+    },
+    "佩特拉": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 30.3285,
+      "lon": 35.4444
+    },
+    "巨石阵": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 51.1789,
+      "lon": -1.8262
+    },
+    "凡尔赛宫": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 48.8049,
+      "lon": 2.1204
+    },
+    "白金汉宫": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 51.5014,
+      "lon": -0.1419
+    },
+    "圣家堂": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 41.4036,
+      "lon": 2.1744
+    },
+    "少女峰": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 46.5585,
+      "lon": 7.9715
+    },
+    "的的喀喀湖": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": -15.9254,
+      "lon": -69.3354
+    },
+    "圣彼得大教堂": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 41.9022,
+      "lon": 12.4539
+    },
+    "白宫": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 38.8977,
+      "lon": -77.0365
+    },
+    "帝国大厦": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 40.7484,
+      "lon": -73.9857
+    },
+    "哈利法塔": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 25.1972,
+      "lon": 55.2744
+    },
+    "金门大桥": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": 37.8199,
+      "lon": -122.4783
+    },
+    "悉尼歌剧院": {
+      "layers": {
+        "humanities": true
+      },
+      "lat": -33.8568,
+      "lon": 151.2153
     }
   },
   "stats": {
