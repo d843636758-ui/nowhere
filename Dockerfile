@@ -2,17 +2,17 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN echo "=== NOWHERE BUILD ==="
 
-COPY server.py .
+COPY . /app
+
+RUN pip install --no-cache-dir "fastmcp==3.4.5" .
 
 RUN mkdir -p /data
 
-ENV PERIOD_HOST=0.0.0.0
-ENV PERIOD_DATA=/data/period_state.json
+ENV NOWHERE_HOME=/data
 ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["python", "server.py"]
+CMD ["python", "/app/remote.py"]
