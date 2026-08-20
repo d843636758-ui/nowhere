@@ -30,6 +30,7 @@ from fastmcp import FastMCP
 
 from nowhere import (
     art,
+    content,
     country,
     describe,
     encounters,
@@ -378,6 +379,8 @@ def _get_climate_zone(lat: float, elev: float = 0) -> str:
     """
     # High altitude override: force cold zone
     if elev >= 3000:
+        if abs(lat) < 23.5:
+            return "暖温带"   # tropical high mountains drop one band
         return "寒带"
     abs_lat = abs(lat)
     for lo, hi, zone in _CLIMATE_ZONES:
@@ -396,14 +399,11 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
 
     South hemisphere month flipping: southern latitudes use north-hemisphere
     data with month offset +6 (month 1 in south = month 7 in north).
-    Each event is {"text": "...", "climate_zone": "..."}; filtered by zone.
+    Each card is {"text": "...", "constraints": {...}}; filtered by constraints.
 
     Biome filtering (Card 58): desert/tundra biomes exclude water-heavy
     phenology sentences (rainforest, wetland, coast content).
     """
-    data = _load_phenology()
-    events = data.get("events", {})
-
     zone = _get_climate_zone(lat, elev)
     band = _ZONE_TO_BAND.get(zone, _get_lat_band(lat))
 
@@ -414,14 +414,12 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
 
     month_str = str(month)
 
-    # Look up north data (used directly for north, flipped for south)
-    north_events = events.get("north", {})
-    band_events = north_events.get(band, {})
-    month_events = band_events.get(month_str, [])
+    # Read from content.db instead of phenology.json
+    month_events = content.cards("phenology", key=f"north/{band}", subkey=month_str)
     if not month_events:
         return None
 
-    # Each entry is {"text": "...", "climate_zone": "...", "lat_band"?};
+    # Each card is {"text": "...", "constraints": {"climate_zone": "...", ...}};
     # filter by zone and optional lat_band (Card 68: restrict subtropical plants)
     abs_lat = abs(lat)
     _OCEAN_REGIONS = {
@@ -430,13 +428,14 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
     }
     raw_candidates: list[tuple[str, str | None]] = []
     for e in month_events:
-        if not isinstance(e, dict) or e.get("climate_zone") != zone:
+        cons = e.get("constraints") or {}
+        if cons.get("climate_zone") != zone:
             continue
-        lb = e.get("lat_band")
+        lb = cons.get("lat_band")
         if lb and not (lb[0] <= abs_lat < lb[1]):
             continue
         # Card 73: ocean region constraint — typhoon cards only for coast/island/water
-        oc = e.get("ocean")
+        oc = cons.get("ocean")
         if oc:
             if biome not in ("coast", "island", "water"):
                 continue
@@ -445,18 +444,17 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
                 cc_now = country.country_code_of(lat, lon)
                 if cc_now not in ccs:
                     continue
-        raw_candidates.append((e["text"], e.get("humidity")))
+        raw_candidates.append((e["text"], cons.get("humidity")))
     if not raw_candidates:
-        # Fallback: accept any dict entry (zone mismatch shouldn't happen)
+        # Fallback: accept any card entry (zone mismatch shouldn't happen)
         # but still respect lat_band constraints
         for e in month_events:
-            if not isinstance(e, dict):
-                continue
-            lb = e.get("lat_band")
+            cons = e.get("constraints") or {}
+            lb = cons.get("lat_band")
             if lb and not (lb[0] <= abs_lat < lb[1]):
                 continue
             # Card 73: ocean region constraint (fallback path)
-            oc = e.get("ocean")
+            oc = cons.get("ocean")
             if oc:
                 if biome not in ("coast", "island", "water"):
                     continue
@@ -465,7 +463,7 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
                     cc_now = country.country_code_of(lat, lon)
                     if cc_now not in ccs:
                         continue
-            raw_candidates.append((e["text"], e.get("humidity")))
+            raw_candidates.append((e["text"], cons.get("humidity")))
 
     # Card 74: tropical arid filtering — exclude humid cards for arid tropical locations
     _ARID_TROPICAL_COUNTRIES = ("PE", "CL", "NA", "AO", "EG", "SA", "YE", "OM")
@@ -1306,8 +1304,8 @@ def _find_nearest_water_feature(name: str, lat: float, lon: float) -> dict | Non
 
     for entry in entries:
         entry_name = entry.get("name", "")
-        # 名称匹配（包含关系）
-        if name not in entry_name and entry_name not in name:
+        # 名称匹配（精确优先，包含关系兜底）
+        if name != entry_name and name not in entry_name and entry_name not in name:
             continue
         elat, elon = entry.get("lat", 0), entry.get("lon", 0)
         radius = entry.get("radius_km", 50)
@@ -1397,8 +1395,8 @@ def _find_river_segment(
         ename = entry.get("name", "")
         note = (entry.get("note") or "").lower()
 
-        # Match the base river name
-        if name not in ename and ename not in name:
+        # Match the base river name (exact first, then substring fallback)
+        if name != ename and name not in ename and ename not in name:
             continue
 
         elat = entry.get("lat", 30.7)
@@ -1775,12 +1773,12 @@ def _resolve_water_body_label(dest_surface: str, lat: float, lon: float) -> str:
         if features:
             fname = features[0].get("name", "")
             ftype = features[0].get("type", "")
-            if "江" in fname:
-                return "江边"
-            if "湖" in fname or ftype == "lake":
-                return "湖边"
-            if "河" in fname or ftype == "river":
+            if ftype == "river":
+                if fname.endswith("江"):
+                    return "江边"
                 return "河边"
+            if ftype == "lake" or "湖" in fname:
+                return "湖边"
     except Exception:
         pass
     return "河边"
@@ -2225,7 +2223,70 @@ def _check_festival_hit(
 
     # Pick best bucket (Card 68: removed lat_rule catch-all)
     hits = place_hits or country_hits
+    # Filter to festivals that actually have cards or eve_cards
+    hits = [f for f in hits if f.get("cards") or f.get("eve_cards")]
+
+    # Eve detection: if today is the day before a festival start, use eve_cards
+    # Same place/country priority as above
     if not hits:
+        from datetime import timedelta
+        tomorrow = sim_date + timedelta(days=1)
+        eve_place: list[dict] = []
+        eve_country: list[dict] = []
+        for fest in festivals:
+            eve_cards = fest.get("eve_cards", [])
+            if not eve_cards:
+                continue
+            window = fest.get("window", {})
+            wtype = window.get("type", "fixed")
+            fest_start = None
+            if wtype == "fixed":
+                start = window.get("start")
+                if start and len(start) >= 2:
+                    try:
+                        fest_start = _date(sim_date.year, start[0], start[1])
+                    except (ValueError, IndexError):
+                        pass
+            elif wtype in ("lunar", "hijri", "solar", "islamic"):
+                years = window.get("years", {})
+                md = years.get(str(sim_date.year))
+                if md and len(md) >= 2:
+                    try:
+                        fest_start = _date(sim_date.year, md[0], md[1])
+                    except (ValueError, IndexError):
+                        pass
+            elif wtype == "lat_rule":
+                base_date = window.get("base_date")
+                if base_date and len(base_date) >= 2:
+                    try:
+                        fest_start = _date(sim_date.year, base_date[0], base_date[1])
+                    except (ValueError, IndexError):
+                        pass
+            if not (fest_start and tomorrow == fest_start):
+                continue
+            # Place/country priority
+            fest_place = fest.get("place", "")
+            fest_country = fest.get("country", "")
+            if fest_place and place_name == fest_place:
+                eve_place.append(fest)
+            elif fest_place and _is_local_festival(fest):
+                continue
+            elif fest_country and country_code and fest_country == country_code:
+                eve_country.append(fest)
+        eve_hits = eve_place or eve_country
+        if eve_hits:
+            fest = rng.choice(eve_hits)
+            eve_cards = fest.get("eve_cards", [])
+            fest_name = fest.get("name", "")
+            card = rng.choice(eve_cards)
+            if fest_name:
+                _eve_ann = [
+                    f"明天是{fest_name}。",
+                    f"{fest_name}快到了。",
+                    f"你来得正好——明天{fest_name}。",
+                ]
+                card = f"{rng.choice(_eve_ann)}{card}"
+            return card
         return None
 
     fest = rng.choice(hits)
@@ -2233,8 +2294,6 @@ def _check_festival_hit(
     if not cards:
         return None
 
-    # Check if it's the eve (day before festival start)
-    # For simplicity, just pick a random card
     card = rng.choice(cards)
     # Card 66 fix: prepend festival name announcement
     fest_name = fest.get("name", "")
@@ -2245,6 +2304,10 @@ def _check_festival_hit(
             f"你到的这天,正是{fest_name}。",
         ]
         card = f"{rng.choice(_ann_variants)}{card}"
+    # Append eve_card if available (293张除夕/节前文案)
+    eve_cards = fest.get("eve_cards", [])
+    if eve_cards:
+        card = f"{card}\n{rng.choice(eve_cards)}"
     return card
 
 
@@ -2912,7 +2975,8 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
                         and _state.biome == "city")
     local_card = localcolor.draw(place_name, _state.seen_cards, _rng,
                                  local_hour=local_hour, country_code=cc, intent=_state.intent,
-                                 lat=lat, lon=lon, walk_step=_state.walk_step_counter)
+                                 lat=lat, lon=lon, walk_step=_state.walk_step_counter,
+                                 month=_now.month if _now else None)
     if local_card:
         # Card 50: suppress food cards at late night in city
         _is_food = local_card.get("category") == "美食" or "/美食/" in local_card.get("key", "")
@@ -4274,7 +4338,8 @@ async def look_around_impl() -> dict:
 
     card = localcolor.draw(place, _state.seen_cards, _rng,
                            local_hour=local_hour, country_code=cc, intent=_state.intent,
-                           lat=lat, lon=lon, walk_step=_state.walk_step_counter)
+                           lat=lat, lon=lon, walk_step=_state.walk_step_counter,
+                           month=now.month if now else None)
     if card:
         _state.seen_cards.add(card["key"])
         placememory.save_seen_cards(place, _state.seen_cards)
@@ -4314,7 +4379,7 @@ async def look_around_impl() -> dict:
     if biome:
         disc_pool = []
         if biome == "city" and cc:
-            disc_pool = describe._load_scenes(f"discovery_city_{cc}")
+            disc_pool = [c["text"] for c in content.cards(f"discovery_city_{cc}")]
         if not disc_pool:
             disc_pool = describe._load_scenes(f"discovery_{biome}")
         if disc_pool:
@@ -4372,11 +4437,11 @@ async def look_around_impl() -> dict:
     # ── 8. Message encounter - 15% chance ───────────────────────────
     if _state.messages and _rng.random() < 0.15:
         msg = _rng.choice(list(_state.messages))
-        content = msg["content"] if isinstance(msg, dict) else msg
+        msg_content = msg["content"] if isinstance(msg, dict) else msg
         if isinstance(msg, dict):
             msg["encountered"] = True
-        content = _strip_code_markers(str(content))
-        sections.append(f"有人在这里留了句话：「{content}」")
+        msg_content = _strip_code_markers(str(msg_content))
+        sections.append(f"有人在这里留了句话：「{msg_content}」")
 
     # ── 9. Ending: static closing (no movement verbs) ──────────────
     _LOOK_CLOSINGS = [
