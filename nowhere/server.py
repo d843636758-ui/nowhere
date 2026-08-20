@@ -2026,6 +2026,23 @@ def _festival_in_window(fest: dict, sim_date: _date, lat: float) -> bool:
     return False
 
 
+def _is_local_festival(fest: dict) -> bool:
+    """Check if a festival is truly local (place-specific) vs national with a center.
+
+    Heuristic: if the place name appears in the festival name, it's local.
+    Examples:
+      - 拉萨雪顿节 (place=拉萨): "拉萨" in name → local
+      - 成都大庙会 (place=成都): "成都" in name → local
+      - 七夕 (place=西安): "西安" not in name → national (celebrated everywhere)
+      - 春节 (place=北京): "北京" not in name → national
+    """
+    name = fest.get("name", "")
+    place = fest.get("place", "")
+    if not place:
+        return False
+    return place in name
+
+
 def _check_festival_hit(
     place_name: str,
     country_code: str | None,
@@ -2037,6 +2054,9 @@ def _check_festival_hit(
 
     Priority: place match > country match > lat_rule match.
     Returns festival card text or None.
+
+    Card 66 fix: local festivals (place in name) are strictly place-bound;
+    national festivals with a "center" place still fall through to country bucket.
     """
     if sim_time is None:
         return None
@@ -2061,9 +2081,9 @@ def _check_festival_hit(
 
         if fest_place and place_name == fest_place:
             place_hits.append(fest)
-        elif fest_place:
-            # Card 66 fix: place-bound festival, place doesn't match → skip
-            # (don't fall through to country/lat buckets)
+        elif fest_place and _is_local_festival(fest):
+            # Card 66 fix: local festival (place in name), place mismatch → skip
+            # e.g. 成都 should not get 拉萨雪顿节
             continue
         elif fest_country and country_code and fest_country == country_code:
             country_hits.append(fest)
@@ -2189,8 +2209,8 @@ def _check_near_festival(
             fest_country = fest.get("country", "")
             if fest_place and place_name == fest_place:
                 pass
-            elif fest_place:
-                # Card 66 fix: place-bound festival, place doesn't match → skip
+            elif fest_place and _is_local_festival(fest):
+                # Card 66 fix: local festival, place mismatch → skip
                 continue
             elif fest_country and country_code and fest_country == country_code:
                 pass
@@ -2237,7 +2257,8 @@ def _get_festival_context(
     Unlike _check_festival_hit, this does NOT select cards — it returns
     metadata for the rendering layer to weave into descriptions.
 
-    Card 66 fix: place-bound festivals are strictly place-scoped.
+    Card 66 fix: local festivals (place in name) are strictly place-scoped;
+    national festivals with a center place show atmosphere country-wide.
     """
     if sim_time is None:
         return None
@@ -2256,10 +2277,15 @@ def _get_festival_context(
         if not fest_name:
             continue
 
-        # Place-bound: strict match only
-        if fest_place and place_name != fest_place:
+        # Local festival (place in name): strict place match only
+        if fest_place and _is_local_festival(fest) and place_name != fest_place:
             continue
-        # Country-bound: skip (atmosphere is for local festivals)
+        # National festival with place center: match same country
+        if fest_place and not _is_local_festival(fest):
+            fest_country = fest.get("country", "")
+            if fest_country and country_code and fest_country != country_code:
+                continue
+        # No place: skip (shouldn't happen for atmosphere)
         if not fest_place:
             continue
 
@@ -3659,6 +3685,16 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
         sections.append(sst_text)
     if marine_text:
         sections.append(marine_text)
+
+    # Card 66: festival atmosphere in walk
+    if now:
+        _fest_walk = _get_festival_context(
+            _state.place_name or "", country.country_code_of(lat, lon), lat, now,
+        )
+        if _fest_walk:
+            _fk = _fest_walk.get("keywords", [])
+            if _fk:
+                sections.append(f"空气里有{_fk[0]}的味道。节日在身边。")
 
     # ── 5a. Narrative text from walk discovery (non-Action, stays inline)
     if not env_cached and narrative_text:
