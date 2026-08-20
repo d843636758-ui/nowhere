@@ -2751,7 +2751,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     # Card 69: build Situation for runtime content filtering
     _situation = salience.build_situation(
         lat, lon, place_name, env,
-        now_month=_now.month if _now else None,
+        now_month=_state.now().month if _state.now() else None,
     )
     top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby, situation=_situation)
     _recent_salience_kinds = {c["kind"] for c in top3}
@@ -3443,7 +3443,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     global _state, _rng, _recent_salience_kinds
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     # Reset per-walk people encounter flag
     _state.person_encountered_this_walk = False
@@ -4006,7 +4006,7 @@ async def listen_impl(seconds: int = 10) -> dict:
     global _state, _rng
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     if seconds <= 0:
         return {"text": "听多久？给个数。", "data": {"error": "bad_seconds"}}
@@ -4157,7 +4157,7 @@ async def look_around_impl() -> dict:
     global _state, _rng
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     lat, lon = _state.pos
     place = _state.place_name or ""
@@ -4298,7 +4298,7 @@ async def wait_impl(hours: float = 1.0) -> dict:
     global _state, _rng
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     # ── 钳制：上限720h（30天），下限0.25h ────────────────────────────
     _MAX_WAIT = 720.0
@@ -4566,7 +4566,7 @@ async def ask_impl(topic: str) -> dict:
     global _state
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     if not isinstance(topic, str):
         return {"text": "问题必须是文字。", "data": {"error": "bad_topic"}}
     topic = topic.strip()
@@ -4597,7 +4597,7 @@ async def walk_to_impl(place: str) -> dict:
     global _state, _rng
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     target = places.find(place, near=_state.pos)
     if target is None:
@@ -4775,7 +4775,7 @@ def mark_impl(name: str, note: str = "", overwrite: bool = False) -> dict:
     global _state
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     if not name.strip():
         return {"text": "标记得有个名字。", "data": {"error": "empty_name"}}
@@ -4811,7 +4811,7 @@ def where_am_i_impl() -> dict:
     global _state
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     lat, lon = _state.pos
     utc_now = _state.now()
@@ -5450,7 +5450,7 @@ def send_postcard_impl(text: str) -> dict:
     global _state, _postcard_counter
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     text = text.strip()
     if not text:
         return {"text": "空白的明信片寄不出去。", "data": {"error": "empty"}}
@@ -5716,7 +5716,7 @@ def bury_impl(note: str | None = None) -> dict:
     """Bury the current souvenir underground."""
     global _state
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     if _state.souvenir is None:
         return {"text": _rng.choice(_EMPTY_BURY_VARIANTS), "data": {"error": "empty"}}
 
@@ -5755,7 +5755,7 @@ def deliver_impl() -> dict:
     global _state
 
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     if _state.errand is None:
         return {"text": "身上没有差事。", "data": {"error": "no_errand"}}
 
@@ -5952,7 +5952,7 @@ def look(direction: str = "前") -> dict:
 def look_impl(direction: str) -> dict:
     """Look in a direction without moving."""
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     # Parse direction
     _RELATIVE = {"左": -90, "右": 90, "后": 180, "前": 0, "前边": 0, "后边": 180, "左边": -90, "右边": 90}
@@ -6042,7 +6042,7 @@ def say(text: str) -> dict:
 def say_impl(text: str) -> dict:
     """Save a quote and return a light acknowledgment."""
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     text = text.strip()
     if not text:
         return {"text": "你没说话。", "data": {"error": "empty"}}
@@ -6093,7 +6093,7 @@ def talk(question: str | None = None) -> dict:
 def talk_impl(question: str | None = None) -> dict:
     """搭话。lines 轮换,第四句是记得你变体。question 含路/方向 → knows。"""
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
     if _state.last_person is None:
         return {"text": "附近没有人。", "data": {"error": "no_person"}}
 
@@ -6370,7 +6370,7 @@ def drift() -> dict:
     """抽一张漂流卡,给个方向建议。脚是你的。"""
     global _state
     if _state.pos is None:
-        return {"text": "还没开门呢。先 open_door 吧。", "data": {"error": "not_landed"}}
+        return {"text": "还没开门呢。先开门吧。", "data": {"error": "not_landed"}}
 
     data = _load_drift_cards()
     biome = getattr(_state, "biome", None) or "any"
