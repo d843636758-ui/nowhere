@@ -2712,6 +2712,16 @@ def _render_water_features(payload: dict, prev: dict | None, rng: random.Random)
     else:
         pool = _load_scenes("water_features")  # fallback to legacy
 
+    # Card 68: if biome-specific pool is empty, fall back to legacy
+    # but filter out waterfall scenes for biomes that shouldn't have waterfalls
+    if not pool and biome:
+        pool = _load_scenes("water_features")
+        # Exclude waterfall scenes from desert/grassland (inland, no waterfalls)
+        if biome in ("desert", "grassland"):
+            _WATERFALL_KEYWORDS = ["瀑布", "水帘", "彩虹", "水雾"]
+            pool = [s for s in pool
+                    if not any(k in s for k in _WATERFALL_KEYWORDS)]
+
     # Card 33: structured field filtering (replaces keyword blacklist)
     if pool and _CURRENT_SEASON:
         pool = filter_by_card_meta(pool, _CURRENT_SEASON, _CURRENT_LAT, biome)

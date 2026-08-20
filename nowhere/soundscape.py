@@ -175,10 +175,19 @@ _BIOME_CREDIT_MAP: dict[str, str] = {
 }
 
 
-def soundscape_credit(biome: str, rng: random.Random) -> str | None:
+def soundscape_credit(
+    biome: str,
+    rng: random.Random,
+    listener_lat: float = 0.0,
+    listener_lon: float = 0.0,
+) -> str | None:
     """20% chance to return a soundscape credit line matching biome.
 
-    Returns None if no match or roll fails.
+    Card 68: credits with lat/lon are distance-filtered — if the recording
+    location is >200 km from the listener, skip it.  Local silence beats
+    distant sound (重庆解放碑 should not appear in 拉萨).
+
+    Returns None if no match, roll fails, or distance too great.
     """
     if rng.random() > 0.20:
         return None
@@ -187,6 +196,27 @@ def soundscape_credit(biome: str, rng: random.Random) -> str | None:
     pool = credits_data.get(credit_key, [])
     if not pool:
         return None
+
+    # Distance filter: exclude entries >200 km from listener
+    if listener_lat != 0.0 or listener_lon != 0.0:
+        near_pool = []
+        for entry in pool:
+            elat = entry.get("lat")
+            elon = entry.get("lon")
+            if elat is None or elon is None:
+                # No coords (ocean/international): always eligible
+                near_pool.append(entry)
+            elif _haversine_km(listener_lat, listener_lon, elat, elon) <= 200:
+                near_pool.append(entry)
+        if not pool:
+            # No entries at all — silent
+            return None
+        if near_pool:
+            pool = near_pool
+        else:
+            # All entries are >200 km — return silent (no distant sound)
+            return None
+
     entry = rng.choice(pool)
     who = entry.get("who", "")
     where = entry.get("where", "")

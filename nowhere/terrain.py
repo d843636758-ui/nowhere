@@ -318,8 +318,12 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def elevation(lat: float, lon: float) -> float:
     """Return interpolated elevation in metres at (*lat*, *lon*).
 
-    Priority: pool baked values > tile data > grid_tiny.
+    Priority: pool baked values > tile data > **DEM column** > grid_tiny.
+    If the grid/tile value differs from DEM by >100m, trust DEM (cities15000
+    column 16 has SRTM-corrected elevations for named cities).
     """
+    from nowhere.dem import lookup as dem_lookup, is_fill_value
+
     entry = _pool_entry(lat, lon)
     if entry is not None:
         return float(entry["elev_m"])
@@ -327,12 +331,23 @@ def elevation(lat: float, lon: float) -> float:
     tile = _find_tile(lat, lon)
     if tile is not None:
         elev_val, _ = _tile_bilinear(tile, lat, lon)
+        # DEM override: trust cities15000 DEM when difference >100m
+        dem_val = dem_lookup(lat, lon)
+        if dem_val is not None and abs(dem_val - elev_val) > 100:
+            return dem_val
         return elev_val
     # Fall back to global grid
     _ensure_loaded()
     assert _elev is not None
     row, col = _latlon_to_grid(lat, lon)
-    return float(_bilinear(_elev.astype(np.float32), row, col))
+    grid_elev = float(_bilinear(_elev.astype(np.float32), row, col))
+    # DEM override: if grid is fill value (~300) OR differs from DEM by >100m,
+    # trust the cities15000 DEM column (SRTM-corrected for named cities).
+    dem_val = dem_lookup(lat, lon)
+    if dem_val is not None:
+        if is_fill_value(grid_elev) or abs(dem_val - grid_elev) > 100:
+            return dem_val
+    return grid_elev
 
 
 def surface(lat: float, lon: float) -> str:

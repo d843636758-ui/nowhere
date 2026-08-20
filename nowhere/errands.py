@@ -35,11 +35,33 @@ def _load_letters() -> list[dict]:
     return _letters_cache
 
 
-def pick_letter(rng: random.Random) -> dict | None:
-    """Pick a random letter from the pool. Returns letter dict or None."""
+def pick_letter(
+    rng: random.Random,
+    listener_lat: float = 0.0,
+    listener_lon: float = 0.0,
+) -> dict | None:
+    """Pick a random letter from the pool. Returns letter dict or None.
+
+    Card 68: letters with destination coordinates are distance-filtered —
+    if the destination is >500 km from the listener, skip it.
+    Letters without coords (e.g. '任何地方') are always eligible.
+    """
     pool = _load_letters()
     if not pool:
         return None
+    # Distance filter
+    if listener_lat != 0.0 or listener_lon != 0.0:
+        near_pool = []
+        for letter in pool:
+            dlat = letter.get("dest_lat")
+            dlon = letter.get("dest_lon")
+            if dlat is None or dlon is None:
+                near_pool.append(letter)  # no coords = always eligible
+            elif _haversine_km((listener_lat, listener_lon), (dlat, dlon)) <= 500:
+                near_pool.append(letter)
+        if not near_pool:
+            return None  # no local letters — quiet, don't force distant ones
+        pool = near_pool
     return rng.choice(pool)
 
 

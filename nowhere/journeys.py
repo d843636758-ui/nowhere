@@ -154,19 +154,23 @@ def get_active_slug() -> str | None:
 
 
 def switch(slug_or_place: str) -> WorldState | None:
-    """Switch to a journey by slug or place name. Returns WorldState or None."""
+    """Switch to a journey by slug or exact place name. Returns WorldState or None.
+
+    Card 68: only exact match — no substring matching.
+    "上海" must NOT match "长江上海段".
+    """
     index = _load_index()
     target = _slug(slug_or_place)
 
-    # Try exact slug match first
+    # Try exact slug match
     for j in index["journeys"]:
         if j["slug"] == target:
             return _load_journey(j["slug"], index)
 
-    # Try fuzzy match (place_name contains query)
-    slug_or_lower = slug_or_place.strip().lower()
+    # Try exact place_name match (case-insensitive)
+    query_lower = slug_or_place.strip().lower()
     for j in index["journeys"]:
-        if slug_or_lower in j.get("place_name", "").lower():
+        if j.get("place_name", "").strip().lower() == query_lower:
             return _load_journey(j["slug"], index)
 
     return None

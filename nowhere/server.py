@@ -366,15 +366,19 @@ _ZONE_TO_BAND: dict[str, str] = {
 }
 
 
-def _get_climate_zone(lat: float) -> str:
-    """Map latitude to climate zone (hemisphere-independent).
+def _get_climate_zone(lat: float, elev: float = 0) -> str:
+    """Map latitude + elevation to climate zone (hemisphere-independent).
 
     Rules:
+        elev >= 3000  -> 寒带（高原：拉萨/珠峰/西宁等）
         |lat| < 23.5  -> 热带
         23.5 <= |lat| < 40  -> 暖温带
         40 <= |lat| < 60  -> 温带
         |lat| >= 60  -> 寒带
     """
+    # High altitude override: force cold zone
+    if elev >= 3000:
+        return "寒带"
     abs_lat = abs(lat)
     for lo, hi, zone in _CLIMATE_ZONES:
         if lo <= abs_lat < hi:
@@ -383,7 +387,7 @@ def _get_climate_zone(lat: float) -> str:
 
 
 def _check_phenology(dt: datetime, lat: float, rng: random.Random,
-                     biome: str | None = None) -> str | None:
+                     biome: str | None = None, elev: float = 0) -> str | None:
     """Check phenology events for current month/latitude. Returns text or None.
 
     Climate zone filtering: determines zone from latitude, maps to data band,
@@ -399,7 +403,7 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
     data = _load_phenology()
     events = data.get("events", {})
 
-    zone = _get_climate_zone(lat)
+    zone = _get_climate_zone(lat, elev)
     band = _ZONE_TO_BAND.get(zone, _get_lat_band(lat))
 
     # Determine effective month: south hemisphere flips +6
@@ -681,7 +685,8 @@ def _compute_timeaxes(dt: datetime, lat: float, lon: float,
                       biome: str, phase: str, weather_precip: str,
                       water_features: list[dict],
                       seen_humanities: set[str],
-                      rng: random.Random) -> list[dict]:
+                      rng: random.Random,
+                      elev: float = 0) -> list[dict]:
     """Compute all six time axes, return list sorted by priority (highest first).
 
     Each entry: {"priority": int, "kind": str, "text": str, "data": dict}
@@ -718,7 +723,7 @@ def _compute_timeaxes(dt: datetime, lat: float, lon: float,
             })
 
     # 4. Phenology (物候) — includes biological clock
-    pheno_text = _check_phenology(dt, lat, rng, biome=biome)
+    pheno_text = _check_phenology(dt, lat, rng, biome=biome, elev=elev)
     if pheno_text:
         layers.append({
             "priority": _TP_PHENOLOGY, "kind": "phenology",
@@ -2807,6 +2812,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             water_features,
             _state.seen_humanities,
             _rng,
+            elev=env.get("elevation", 0),
         )
         for _ta in _ta_layers:
             if _ta["text"] not in set(_state.recent_scenes):
@@ -3961,7 +3967,10 @@ async def listen_impl(seconds: int = 10) -> dict:
         sound_text = _dawn_text
 
     # Card 21: Soundscape credits (20% chance on listen)
-    _credit_text = soundscape.soundscape_credit(_state.biome or "", _rng)
+    _credit_text = soundscape.soundscape_credit(
+        _state.biome or "", _rng,
+        listener_lat=lat, listener_lon=lon,
+    )
 
     # ── 1. Find nearest station (sticky) ─────────────────────────────
     station = await _get_radio(lat, lon)
@@ -5508,7 +5517,8 @@ def send_postcard_impl(text: str) -> dict:
     if (not _state.errand
             and not _state.errand_letter_taken_this_journey
             and _rng.random() < 0.10):
-        letter = errands.pick_letter(_rng)
+        _llat, _llon = _state.pos if _state.pos else (0.0, 0.0)
+        letter = errands.pick_letter(_rng, listener_lat=_llat, listener_lon=_llon)
         if letter:
             _state.errand = errands.take_letter(letter, _state.now() or datetime.now(timezone.utc))
             _state.errand_letter_taken_this_journey = True
@@ -6040,7 +6050,8 @@ def talk_impl(question: str | None = None) -> dict:
             and question and any(k in question for k in ("信", "带", "邮", "差事"))
             and not _state.errand
             and not _state.errand_letter_taken_this_journey):
-        letter = errands.pick_letter(_rng)
+        _llat, _llon = _state.pos if _state.pos else (0.0, 0.0)
+        letter = errands.pick_letter(_rng, listener_lat=_llat, listener_lon=_llon)
         if letter:
             _state.errand = errands.take_letter(letter, _state.now() or datetime.now(timezone.utc))
             _state.errand_letter_taken_this_journey = True
