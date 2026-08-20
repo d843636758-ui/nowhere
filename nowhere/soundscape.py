@@ -253,6 +253,21 @@ def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * _EARTH_RADIUS_KM * math.asin(math.sqrt(a))
 
 
+_CULTURE_CIRCLES: dict[str, list[str]] = {
+    "arabic":    ["EG", "LY", "TN", "DZ", "MA", "SA", "AE", "JO", "IQ", "SY", "LB", "YE", "OM", "QA", "KW", "BH", "SD"],
+    "turkic":    ["TR", "KG"],
+    "persian":   ["IR"],
+    "south_asia":["IN", "PK", "BD"],
+    "east_asia": ["CN", "KR", "JP", "VN", "TH", "ID", "MY", "PH", "KH", "MM"],
+    "europe":    ["GB", "FR", "DE", "NO", "IS", "CZ", "IT", "UA"],
+    "americas":  ["US", "CA", "BR", "AR", "PE", "CO", "CL", "MX", "BO"],
+    "africa":    ["KE", "TZ", "ZA", "CM", "ET", "GH", "NG"],
+    "oceania":   ["AU", "NZ", "FJ"],
+}
+
+_MAX_NEARBY_KM: float = 3000.0
+
+
 def select_station(
     lat: float,
     lon: float,
@@ -261,10 +276,11 @@ def select_station(
 ) -> dict | None:
     """Select a radio station for the given location.
 
-    Priority:
-      1. Same-country live stations (nearest by haversine)
-      2. International stations (country == "international")
-      3. None (caller should render a "quiet" variant)
+    Card 68 fallback chain:
+      1. Same-country (nearest by haversine)
+      2. Same culture circle (nearest)
+      3. Nearby (haversine ≤ 3000 km, any station)
+      4. None (caller should render a "quiet" variant)
 
     Station entries with ``"dead": true`` are skipped entirely.
 
@@ -275,20 +291,10 @@ def select_station(
     if not stations:
         return None
 
-    # Partition: same country, international, dead
-    same_country: list[dict] = []
-    international: list[dict] = []
+    live = [st for st in stations if not st.get("dead")]
+    if not live:
+        return None
 
-    for st in stations:
-        if st.get("dead"):
-            continue
-        st_cc = st.get("country", "")
-        if st_cc == country_code:
-            same_country.append(st)
-        elif st_cc == "international":
-            international.append(st)
-
-    # Pick nearest from same-country pool
     def _pick_nearest(pool: list[dict]) -> dict | None:
         if not pool:
             return None
@@ -306,16 +312,39 @@ def select_station(
         return best
 
     # 1. Same-country nearest
+    same_country = [st for st in live if st.get("country", "") == country_code]
     pick = _pick_nearest(same_country)
     if pick is not None:
         return pick
 
-    # 2. International fallback
-    pick = _pick_nearest(international)
-    if pick is not None:
-        return pick
+    # 2. Same culture circle
+    circle_ccs: list[str] = []
+    for _name, ccs in _CULTURE_CIRCLES.items():
+        if country_code in ccs:
+            circle_ccs = ccs
+            break
+    if circle_ccs:
+        circle_pool = [st for st in live if st.get("country", "") in circle_ccs]
+        pick = _pick_nearest(circle_pool)
+        if pick is not None:
+            return pick
 
-    # 3. No station available
+    # 3. Nearby by haversine ≤ 3000 km
+    best: dict | None = None
+    best_dist = math.inf
+    for st in live:
+        st_lat = st.get("lat")
+        st_lon = st.get("lon")
+        if st_lat is None or st_lon is None:
+            continue
+        d = _haversine_km(lat, lon, st_lat, st_lon)
+        if d < best_dist:
+            best_dist = d
+            best = st
+    if best is not None and best_dist <= _MAX_NEARBY_KM:
+        return best
+
+    # 4. No station available (silent)
     return None
 
 

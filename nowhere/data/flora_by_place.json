@@ -8000,5 +8000,661 @@
       "zh": "柠条",
       "la": "Caragana korshinskii"
     }
+  ],
+  "肇庆": [
+    {
+      "zh": "落羽杉",
+      "la": "Taxodium distichum"
+    },
+    {
+      "zh": "荷",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "冬叶",
+      "la": "Phrynium capitatum"
+    },
+    {
+      "zh": "木棉",
+      "la": "Bombax ceiba"
+    },
+    {
+      "zh": "三角梅",
+      "la": "Bougainvillea spectabilis"
+    },
+    {
+      "zh": "鸡蛋花",
+      "la": "Plumeria rubra"
+    }
+  ],
+  "银川": [
+    {
+      "zh": "沙枣",
+      "la": "Elaeagnus angustifolia"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "枸杞",
+      "la": "Lycium barbarum"
+    },
+    {
+      "zh": "贺兰山青海云杉",
+      "la": "Picea crassifolia"
+    },
+    {
+      "zh": "白刺",
+      "la": "Nitraria tangutorum"
+    },
+    {
+      "zh": "柠条",
+      "la": "Caragana korshinskii"
+    }
+  ],
+  "常德": [
+    {
+      "zh": "桃",
+      "la": "Prunus persica"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "莲",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "楠竹",
+      "la": "Phyllostachys edulis"
+    },
+    {
+      "zh": "油茶",
+      "la": "Camellia oleifera"
+    },
+    {
+      "zh": "枫香",
+      "la": "Liquidambar formosana"
+    },
+    {
+      "zh": "栀子花",
+      "la": "Gardenia jasminoides"
+    }
+  ],
+  "信阳": [
+    {
+      "zh": "茶",
+      "la": "Camellia sinensis"
+    },
+    {
+      "zh": "马尾松",
+      "la": "Pinus massoniana"
+    },
+    {
+      "zh": "枫香",
+      "la": "Liquidambar formosana"
+    },
+    {
+      "zh": "板栗",
+      "la": "Castanea mollissima"
+    },
+    {
+      "zh": "楠竹",
+      "la": "Phyllostachys edulis"
+    },
+    {
+      "zh": "映山红",
+      "la": "Rhododendron simsii"
+    },
+    {
+      "zh": "栀子花",
+      "la": "Gardenia jasminoides"
+    }
+  ],
+  "九江": [
+    {
+      "zh": "马尾松",
+      "la": "Pinus massoniana"
+    },
+    {
+      "zh": "茶",
+      "la": "Camellia sinensis"
+    },
+    {
+      "zh": "枫香",
+      "la": "Liquidambar formosana"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "苦槠",
+      "la": "Castanopsis sclerophylla"
+    },
+    {
+      "zh": "青冈栎",
+      "la": "Cyclobalanopsis glauca"
+    },
+    {
+      "zh": "野菊",
+      "la": "Chrysanthemum indicum"
+    }
+  ],
+  "阿斯旺": [
+    {
+      "zh": "椰枣",
+      "la": "Phoenix dactylifera"
+    },
+    {
+      "zh": "纸莎草",
+      "la": "Cyperus papyrus"
+    },
+    {
+      "zh": "阿拉伯金合欢",
+      "la": "Acacia nilotica"
+    },
+    {
+      "zh": "蓝睡莲",
+      "la": "Nymphaea caerulea"
+    },
+    {
+      "zh": "象腿树",
+      "la": "Beaucarnea recurvata"
+    },
+    {
+      "zh": "沙漠刺葵",
+      "la": "Medemia argun"
+    }
+  ],
+  "漓江": [
+    {
+      "zh": "凤尾竹",
+      "la": "Bambusa multiplex"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "油桐",
+      "la": "Vernicia fordii"
+    },
+    {
+      "zh": "苦楝",
+      "la": "Melia azedarach"
+    },
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "毛竹",
+      "la": "Phyllostachys edulis"
+    },
+    {
+      "zh": "马尾松",
+      "la": "Pinus massoniana"
+    }
+  ],
+  "多瑙河": [
+    {
+      "zh": "欧洲赤松",
+      "la": "Pinus sylvestris"
+    },
+    {
+      "zh": "垂柳",
+      "la": "Salix alba"
+    },
+    {
+      "zh": "夏栎",
+      "la": "Quercus robur"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "多瑙河百合",
+      "la": "Leopoldia comosa"
+    },
+    {
+      "zh": "野生郁金香",
+      "la": "Tulipa sylvestris"
+    }
+  ],
+  "阿尔卑斯": [
+    {
+      "zh": "火绒草",
+      "la": "Leontopodium alpinum"
+    },
+    {
+      "zh": "龙胆",
+      "la": "Gentiana acaulis"
+    },
+    {
+      "zh": "高山玫瑰",
+      "la": "Rhododendron ferrugineum"
+    },
+    {
+      "zh": "欧洲落叶松",
+      "la": "Larix decidua"
+    },
+    {
+      "zh": "瑞士石松",
+      "la": "Pinus cembra"
+    },
+    {
+      "zh": "高山报春",
+      "la": "Primula auricula"
+    },
+    {
+      "zh": "雪绒花",
+      "la": "Leontopodium nivale"
+    }
+  ],
+  "长白山天池": [
+    {
+      "zh": "岳桦",
+      "la": "Ermanii Betula"
+    },
+    {
+      "zh": "长白落叶松",
+      "la": "Larix olgensis"
+    },
+    {
+      "zh": "笃斯越橘",
+      "la": "Vaccinium uliginosum"
+    },
+    {
+      "zh": "牛皮杜鹃",
+      "la": "Rhododendron chrysanthum"
+    },
+    {
+      "zh": "高山罂粟",
+      "la": "Papaver radicatum"
+    },
+    {
+      "zh": "偃松",
+      "la": "Pinus pumila"
+    }
+  ],
+  "桂林": [
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "凤尾竹",
+      "la": "Bambusa multiplex"
+    },
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "樟树",
+      "la": "Cinnamomum camphora"
+    },
+    {
+      "zh": "油茶",
+      "la": "Camellia oleifera"
+    },
+    {
+      "zh": "柚子",
+      "la": "Citrus maxima"
+    }
+  ],
+  "斯特拉斯堡": [
+    {
+      "zh": "欧洲七叶树",
+      "la": "Aesculus hippocastanum"
+    },
+    {
+      "zh": "椴树",
+      "la": "Tilia × europaea"
+    },
+    {
+      "zh": "常春藤",
+      "la": "Hedera helix"
+    },
+    {
+      "zh": "紫藤",
+      "la": "Wisteria sinensis"
+    },
+    {
+      "zh": "天竺葵",
+      "la": "Pelargonium zonale"
+    },
+    {
+      "zh": "葡萄",
+      "la": "Vitis vinifera"
+    }
+  ],
+  "阳朔": [
+    {
+      "zh": "竹子",
+      "la": "Phyllostachys edulis"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "柚子",
+      "la": "Citrus maxima"
+    },
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "凤尾蕨",
+      "la": "Pteris cretica"
+    }
+  ],
+  "喜马拉雅": [
+    {
+      "zh": "杜鹃花",
+      "la": "Rhododendron arboreum"
+    },
+    {
+      "zh": "雪松",
+      "la": "Cedrus deodara"
+    },
+    {
+      "zh": "高山栎",
+      "la": "Quercus semecarpifolia"
+    },
+    {
+      "zh": "报春花",
+      "la": "Primula denticulata"
+    },
+    {
+      "zh": "雪莲",
+      "la": "Saussurea involucrata"
+    },
+    {
+      "zh": "高山火绒草",
+      "la": "Leontopodium alpinum"
+    },
+    {
+      "zh": "龙胆",
+      "la": "Gentiana sino-ornata"
+    }
+  ],
+  "梧州": [
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "木棉",
+      "la": "Bombax ceiba"
+    },
+    {
+      "zh": "荔枝",
+      "la": "Litchi chinensis"
+    },
+    {
+      "zh": "龙眼",
+      "la": "Dimocarpus longan"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "竹",
+      "la": "Bambusa"
+    },
+    {
+      "zh": "芒果",
+      "la": "Mangifera indica"
+    }
+  ],
+  "黄石": [
+    {
+      "zh": "樟树",
+      "la": "Cinnamomum camphora"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "银杏",
+      "la": "Ginkgo biloba"
+    },
+    {
+      "zh": "枫香",
+      "la": "Liquidambar formosana"
+    },
+    {
+      "zh": "茶",
+      "la": "Camellia sinensis"
+    },
+    {
+      "zh": "竹",
+      "la": "Phyllostachys"
+    }
+  ],
+  "孟菲斯": [
+    {
+      "zh": "木兰",
+      "la": "Magnolia grandiflora"
+    },
+    {
+      "zh": "山茱萸",
+      "la": "Cornus florida"
+    },
+    {
+      "zh": "橡树",
+      "la": "Quercus"
+    },
+    {
+      "zh": "枫香",
+      "la": "Liquidambar styraciflua"
+    },
+    {
+      "zh": "朴树",
+      "la": "Celtis occidentalis"
+    },
+    {
+      "zh": "棉",
+      "la": "Gossypium hirsutum"
+    }
+  ],
+  "佳木斯": [
+    {
+      "zh": "白桦",
+      "la": "Betula platyphylla"
+    },
+    {
+      "zh": "落叶松",
+      "la": "Larix gmelinii"
+    },
+    {
+      "zh": "红松",
+      "la": "Pinus koraiensis"
+    },
+    {
+      "zh": "柞树",
+      "la": "Quercus mongolica"
+    },
+    {
+      "zh": "水曲柳",
+      "la": "Fraxinus mandshurica"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    }
+  ],
+  "北海": [
+    {
+      "zh": "木麻黄",
+      "la": "Casuarina equisetifolia"
+    },
+    {
+      "zh": "椰子",
+      "la": "Cocos nucifera"
+    },
+    {
+      "zh": "榕树",
+      "la": "Ficus microcarpa"
+    },
+    {
+      "zh": "秋茄",
+      "la": "Kandelia obovata"
+    },
+    {
+      "zh": "龙眼",
+      "la": "Dimocarpus longan"
+    },
+    {
+      "zh": "香蕉",
+      "la": "Musa acuminata"
+    }
+  ],
+  "黄河": [
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "柽柳",
+      "la": "Tamarix chinensis"
+    },
+    {
+      "zh": "水蓼",
+      "la": "Persicaria hydropiper"
+    },
+    {
+      "zh": "荻",
+      "la": "Miscanthus sacchariflorus"
+    },
+    {
+      "zh": "碱蓬",
+      "la": "Suaeda glauca"
+    },
+    {
+      "zh": "马蔺",
+      "la": "Iris lactea"
+    }
+  ],
+  "蚌埠": [
+    {
+      "zh": "垂柳",
+      "la": "Salix babylonica"
+    },
+    {
+      "zh": "荷花",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "石榴",
+      "la": "Punica granatum"
+    },
+    {
+      "zh": "银杏",
+      "la": "Ginkgo biloba"
+    },
+    {
+      "zh": "紫薇",
+      "la": "Lagerstroemia indica"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    }
+  ],
+  "圣路易斯": [
+    {
+      "zh": "枫香树",
+      "la": "Liquidambar styraciflua"
+    },
+    {
+      "zh": "北美红橡",
+      "la": "Quercus rubra"
+    },
+    {
+      "zh": "黑核桃",
+      "la": "Juglans nigra"
+    },
+    {
+      "zh": "山茱萸",
+      "la": "Cornus florida"
+    },
+    {
+      "zh": "北美鹅掌楸",
+      "la": "Liriodendron tulipifera"
+    },
+    {
+      "zh": "美国梧桐",
+      "la": "Platanus occidentalis"
+    }
+  ],
+  "鹿特丹": [
+    {
+      "zh": "荷兰榆",
+      "la": "Ulmus × hollandica"
+    },
+    {
+      "zh": "菩提树",
+      "la": "Tilia × europaea"
+    },
+    {
+      "zh": "水仙",
+      "la": "Narcissus pseudonarcissus"
+    },
+    {
+      "zh": "郁金香",
+      "la": "Tulipa gesneriana"
+    },
+    {
+      "zh": "欧洲山毛榉",
+      "la": "Fagus sylvatica"
+    },
+    {
+      "zh": "橡树",
+      "la": "Quercus robur"
+    }
+  ],
+  "宜宾": [
+    {
+      "zh": "毛竹",
+      "la": "Phyllostachys edulis"
+    },
+    {
+      "zh": "慈竹",
+      "la": "Neosinocalamus affinis"
+    },
+    {
+      "zh": "油樟",
+      "la": "Cinnamomum longepaniculatum"
+    },
+    {
+      "zh": "桢楠",
+      "la": "Phoebe zhennan"
+    },
+    {
+      "zh": "茶树",
+      "la": "Camellia sinensis"
+    },
+    {
+      "zh": "银杏",
+      "la": "Ginkgo biloba"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    }
   ]
 }

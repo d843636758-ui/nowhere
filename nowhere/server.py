@@ -420,16 +420,28 @@ def _check_phenology(dt: datetime, lat: float, rng: random.Random,
     if not month_events:
         return None
 
-    # Each entry is {"text": "...", "climate_zone": "..."}; filter by zone
-    candidates = [
-        e["text"] for e in month_events
-        if isinstance(e, dict) and e.get("climate_zone") == zone
-    ]
+    # Each entry is {"text": "...", "climate_zone": "...", "lat_band"?};
+    # filter by zone and optional lat_band (Card 68: restrict subtropical plants)
+    abs_lat = abs(lat)
+    candidates = []
+    for e in month_events:
+        if not isinstance(e, dict) or e.get("climate_zone") != zone:
+            continue
+        lb = e.get("lat_band")
+        if lb and not (lb[0] <= abs_lat < lb[1]):
+            continue
+        candidates.append(e["text"])
     if not candidates:
         # Fallback: accept any dict entry (zone mismatch shouldn't happen)
-        candidates = [
-            e["text"] for e in month_events if isinstance(e, dict)
-        ]
+        # but still respect lat_band constraints
+        candidates = []
+        for e in month_events:
+            if not isinstance(e, dict):
+                continue
+            lb = e.get("lat_band")
+            if lb and not (lb[0] <= abs_lat < lb[1]):
+                continue
+            candidates.append(e["text"])
 
     # Card 58: biome filtering — desert/tundra excludes water-heavy content
     if biome in ("desert", "tundra"):
@@ -973,6 +985,14 @@ async def _get_radio(lat: float, lon: float) -> dict | None:
         station = await asyncio.wait_for(radio.nearest(lat, lon, cc), timeout=8.0)
     except (asyncio.TimeoutError, Exception):
         return None
+    # Card 68: reject fallback stations >3000 km away (kills same-continent bleed)
+    if station is not None:
+        st_lat = station.get("lat")
+        st_lon = station.get("lon")
+        if st_lat is not None and st_lon is not None:
+            d = _km((lat, lon), (st_lat, st_lon))
+            if d > 3000:
+                return None
     if station is not None:
         _state.radio_station = station
         _state.radio_pos = (lat, lon)
@@ -1972,8 +1992,14 @@ def _load_festivals() -> list[dict]:
     return _festivals_cache
 
 
-def _festival_in_window(fest: dict, sim_date: _date, lat: float) -> bool:
-    """Check if sim_date falls within a festival's window."""
+def _festival_in_window(fest: dict, sim_date: _date, lat: float,
+                        country_code: str | None = None) -> bool:
+    """Check if sim_date falls within a festival's window.
+
+    Card 68: lat_rule entries must declare geographic range (countries[] or
+    lat_band[]).  If the caller's location is outside that range the window
+    is treated as closed — lat_rule is no longer a catch-all bucket.
+    """
     window = fest.get("window", {})
     wtype = window.get("type", "fixed")
 
@@ -2014,6 +2040,17 @@ def _festival_in_window(fest: dict, sim_date: _date, lat: float) -> bool:
         return fest_start <= sim_date <= fest_end
 
     elif wtype == "lat_rule":
+        # Card 68: geo constraint gate — reject if outside declared range
+        geo_countries = window.get("countries")
+        geo_lat_band = window.get("lat_band")
+        if geo_countries:
+            if country_code not in geo_countries:
+                return False
+        if geo_lat_band:
+            abs_lat = abs(lat)
+            if not (geo_lat_band[0] <= abs_lat < geo_lat_band[1]):
+                return False
+
         base_lat = window.get("base_lat", 35.0)
         base_date = window.get("base_date", [3, 24])
         days_per_deg = window.get("days_per_deg", 2.6)
@@ -2078,7 +2115,7 @@ def _check_festival_hit(
     lat_hits: list[dict] = []
 
     for fest in festivals:
-        if not _festival_in_window(fest, sim_date, lat):
+        if not _festival_in_window(fest, sim_date, lat, country_code=country_code):
             continue
         fest_place = fest.get("place", "")
         fest_country = fest.get("country", "")
@@ -2093,10 +2130,15 @@ def _check_festival_hit(
         elif fest_country and country_code and fest_country == country_code:
             country_hits.append(fest)
         elif window_type == "lat_rule":
-            lat_hits.append(fest)
+            # Card 68: lat_rule no longer a catch-all bucket.
+            # Only match via geo countries[] if declared.
+            geo_countries = fest.get("window", {}).get("countries")
+            if geo_countries and country_code and country_code in geo_countries:
+                country_hits.append(fest)
+            # lat_band-only lat_rule entries: no country match → silent
 
-    # Pick best bucket
-    hits = place_hits or country_hits or lat_hits
+    # Pick best bucket (Card 68: removed lat_rule catch-all)
+    hits = place_hits or country_hits
     if not hits:
         return None
 
@@ -2192,6 +2234,13 @@ def _check_near_festival(
                     pass
 
         elif wtype == "lat_rule":
+            # Card 68: geo constraint gate
+            geo_countries = window.get("countries")
+            geo_lat_band = window.get("lat_band")
+            if geo_countries and country_code not in geo_countries:
+                continue
+            if geo_lat_band and not (geo_lat_band[0] <= abs(lat) < geo_lat_band[1]):
+                continue
             base_lat = window.get("base_lat", 35.0)
             base_date = window.get("base_date", [3, 24])
             days_per_deg = window.get("days_per_deg", 2.6)
@@ -2220,7 +2269,12 @@ def _check_near_festival(
             elif fest_country and country_code and fest_country == country_code:
                 pass
             elif wtype == "lat_rule":
-                pass
+                # Card 68: geo countries check (no more catch-all)
+                geo_cc = window.get("countries")
+                if geo_cc and country_code and country_code in geo_cc:
+                    pass
+                else:
+                    continue
             else:
                 continue
 
@@ -2275,7 +2329,7 @@ def _get_festival_context(
     sim_date = sim_time.astimezone(ZoneInfo("Asia/Shanghai")).date()
 
     for fest in festivals:
-        if not _festival_in_window(fest, sim_date, lat):
+        if not _festival_in_window(fest, sim_date, lat, country_code=country_code):
             continue
         fest_place = fest.get("place", "")
         fest_name = fest.get("name", "")
@@ -2285,10 +2339,14 @@ def _get_festival_context(
         # Local festival (place in name): strict place match only
         if fest_place and _is_local_festival(fest) and place_name != fest_place:
             continue
-        # National festival with place center: match same country
+        # National festival with place center: match same country or geo countries
         if fest_place and not _is_local_festival(fest):
             fest_country = fest.get("country", "")
-            if fest_country and country_code and fest_country != country_code:
+            geo_countries = fest.get("window", {}).get("countries")
+            if geo_countries and country_code:
+                if country_code not in geo_countries:
+                    continue
+            elif fest_country and country_code and fest_country != country_code:
                 continue
         # No place: skip (shouldn't happen for atmosphere)
         if not fest_place:
@@ -2690,7 +2748,12 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             _heavy_nearby = humanities.get_place_weight(_h_probe.get("place")) == "heavy"
 
     candidates = _build_salience_candidates(env, None)
-    top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby)
+    # Card 69: build Situation for runtime content filtering
+    _situation = salience.build_situation(
+        lat, lon, place_name, env,
+        now_month=_now.month if _now else None,
+    )
+    top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby, situation=_situation)
     _recent_salience_kinds = {c["kind"] for c in top3}
 
     # ── 5. 开幕镜头 + top3(天气/天空已被开幕吃掉)─────────────────────
@@ -2837,7 +2900,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
     prose = describe.compose(sections, _rng, section_type="establish")
     _now = _state.now()
     _month = _now.month if _now else None
-    prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else ""})
+    prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else "", "_place": place_name, "_cc": cc or ""})
 
     # ── 5c. Card 53: 重地落地——少声色多留白 ────────────────────────
     if _heavy_nearby and not _blind:
@@ -3662,7 +3725,13 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
                 _heavy_nearby_walk = humanities.get_place_weight(_h_probe_w.get("place")) == "heavy"
 
         candidates = _build_salience_candidates(env, prev_env)
-        top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby_walk)
+        # Card 69: build Situation for runtime content filtering
+        _walk_cc = country.country_code_of(lat, lon)
+        _situation_walk = salience.build_situation(
+            lat, lon, _state.place_name or "", env,
+            now_month=now.month if now else None,
+        )
+        top3 = salience.rank(candidates, _rng, recent_kinds=_recent_salience_kinds, intent=_state.intent, heavy_nearby=_heavy_nearby_walk, situation=_situation_walk)
         _recent_salience_kinds = {c["kind"] for c in top3}
         for c in top3:
             prev = None
@@ -3805,7 +3874,7 @@ async def walk_impl(direction: str = "forward", distance_km: float = 2.0) -> dic
     else:
         prose = describe.compose(sections, _rng)
         _month = local_dt.month if local_dt else None
-        prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else ""})
+        prose = describe.sanity_check(prose, {**env, "_season": describe._season(_month, lat) if _month else "", "_place": _state.place_name or "", "_cc": _walk_cc or ""})
         if far_note:
             prose = far_note + prose
         if sea_note:
