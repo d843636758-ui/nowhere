@@ -1,4 +1,4 @@
-"""Weather with three-tier fallback: qweather -> Open-Meteo -> climate zone.
+"""Weather with three-tier fallback: QWeather -> Open-Meteo -> climate zone.
 
 Never returns None, never raises.
 """
@@ -7,18 +7,21 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import logging
 import math
 import os
 import random
 from typing import Any, Final
 
+import httpx
+
 from nowhere import providers
 
-# ── QWeather key ───────────────────────────────────────────────────
-_QWEATHER_KEY: str = os.environ.get("NOWHERE_QWEATHER_KEY", "")
+logger = logging.getLogger(__name__)
+
 
 # ── WMO weather code -> (precip, chinese_text) ─────────────────────
-# https://www.noaa.gov/weather/wmo-weather-interpretation-codes
+
 _WMO_MAP: Final[dict[int, tuple[str, str]]] = {
     0: ("none", "晴"),
     1: ("none", "大部晴"),
@@ -50,65 +53,148 @@ _WMO_MAP: Final[dict[int, tuple[str, str]]] = {
     99: ("storm", "强雷暴伴冰雹"),
 }
 
+
 # ── Climate zone tables ────────────────────────────────────────────
-# zone -> [jan, feb, ..., dec] temp_c
+
 _CLIMATE_TEMP: Final[dict[str, list[float]]] = {
-    "equator":      [27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27, 27],
-    "subtropical":  [15, 16, 19, 23, 27, 30, 30, 29, 27, 23, 19, 15],
-    "temperate":    [2,  3,  7, 12, 17, 21, 23, 22, 18, 12,  7,  3],
-    "subarctic":   [-15,-13, -5,  3, 10, 15, 18, 16, 10,  2, -7,-13],
-    "polar":       [-30,-32,-28,-20,-10, -2,  0, -2,-10,-20,-28,-30],
+    "equator": [
+        27, 27, 27, 27, 27, 27,
+        27, 27, 27, 27, 27, 27,
+    ],
+    "subtropical": [
+        15, 16, 19, 23, 27, 30,
+        30, 29, 27, 23, 19, 15,
+    ],
+    "temperate": [
+        2, 3, 7, 12, 17, 21,
+        23, 22, 18, 12, 7, 3,
+    ],
+    "subarctic": [
+        -15, -13, -5, 3, 10, 15,
+        18, 16, 10, 2, -7, -13,
+    ],
+    "polar": [
+        -30, -32, -28, -20, -10, -2,
+        0, -2, -10, -20, -28, -30,
+    ],
 }
 
 
 def _climate_zone(lat: float) -> str:
     """Map latitude to a climate zone name."""
+
     abs_lat = abs(lat)
+
     if abs_lat < 10:
         return "equator"
+
     if abs_lat < 30:
         return "subtropical"
+
     if abs_lat < 55:
         return "temperate"
+
     if abs_lat < 70:
         return "subarctic"
+
     return "polar"
 
 
-def _stable_random(lat: float, lon: float, low: float, high: float) -> float:
+def _stable_random(
+    lat: float,
+    lon: float,
+    low: float,
+    high: float,
+) -> float:
     """Return a deterministic pseudo-random float seeded by lat/lon."""
+
     seed_str = f"{lat:.2f},{lon:.2f}"
-    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)
-    return random.Random(seed).uniform(low, high)
+
+    seed = (
+        int(
+            hashlib.md5(
+                seed_str.encode()
+            ).hexdigest(),
+            16,
+        )
+        % (2**32)
+    )
+
+    return random.Random(seed).uniform(
+        low,
+        high,
+    )
 
 
-def _climate_fallback(lat: float, lon: float, elevation: float | None = None,
-                      local_hour: int | None = None) -> dict[str, Any]:
-    """Offline climate-zone estimate. Always returns a valid dict."""
+def _climate_fallback(
+    lat: float,
+    lon: float,
+    elevation: float | None = None,
+    local_hour: int | None = None,
+) -> dict[str, Any]:
+    """Offline climate-zone estimate."""
+
     zone = _climate_zone(lat)
-    # Use local_hour to infer approximate month if available, else server time
-    # (local_hour alone can't determine month, so we still need today's date,
-    #  but at least we use the correct day boundary for the target timezone)
-    month = datetime.date.today().month  # 1-indexed
-    # Southern hemisphere: shift month by 6 to flip seasons
+
+    month = datetime.date.today().month
+
     if lat < 0:
-        month = ((month - 1 + 6) % 12) + 1
-    temp = _CLIMATE_TEMP[zone][month - 1]  # list is 0-indexed, month is 1-indexed
-    # Diurnal (day/night) temperature variation
+        month = (
+            (month - 1 + 6) % 12
+        ) + 1
+
+    temp = _CLIMATE_TEMP[
+        zone
+    ][month - 1]
+
     if local_hour is not None:
-        # Peak at 14:00, trough at 05:00
-        # Amplitude: ±8°C for lowlands, ±12°C for deserts
-        amplitude = 12.0 if zone in ("equator", "subtropical") else 8.0
-        hour_angle = (local_hour - 5) * (2 * math.pi / 24)  # trough at 5am
-        temp += amplitude * math.sin(hour_angle)
-    # Atmospheric lapse rate correction: ~6.5°C per 1000m
+
+        amplitude = (
+            12.0
+            if zone in (
+                "equator",
+                "subtropical",
+            )
+            else 8.0
+        )
+
+        hour_angle = (
+            (local_hour - 5)
+            * (2 * math.pi / 24)
+        )
+
+        temp += (
+            amplitude
+            * math.sin(hour_angle)
+        )
+
     if elevation and elevation > 0:
-        temp -= elevation * 0.0065
-    wind = _stable_random(lat, lon, 3.0, 8.0)
+
+        temp -= (
+            elevation
+            * 0.0065
+        )
+
+    wind = _stable_random(
+        lat,
+        lon,
+        3.0,
+        8.0,
+    )
+
     return {
-        "temp_c": round(temp, 1),
-        "feels_c": round(temp - 2, 1),
-        "wind_ms": round(wind, 1),
+        "temp_c": round(
+            temp,
+            1,
+        ),
+        "feels_c": round(
+            temp - 2,
+            1,
+        ),
+        "wind_ms": round(
+            wind,
+            1,
+        ),
         "humidity": 60.0,
         "precip": "none",
         "text": "气候估算",
@@ -119,42 +205,243 @@ def _climate_fallback(lat: float, lon: float, elevation: float | None = None,
 # ── QWeather ───────────────────────────────────────────────────────
 
 
-def _precip_from_text(text: str) -> str:
+def _precip_from_text(
+    text: str,
+) -> str:
     """Infer precipitation type from Chinese weather description."""
-    for kw, p in [("雪", "snow"), ("雷", "storm"), ("雨", "rain"), ("冰雹", "storm")]:
+
+    for kw, precip in [
+        ("冰雹", "storm"),
+        ("雷", "storm"),
+        ("雪", "snow"),
+        ("雨", "rain"),
+    ]:
+
         if kw in text:
-            return p
+            return precip
+
     return "none"
 
 
-async def _try_qweather(lat: float, lon: float) -> dict[str, Any] | None:
-    """Try QWeather API. Returns dict on success, None on failure."""
-    key = os.environ.get("NOWHERE_QWEATHER_KEY", "")
-    if not key:
+def _qweather_config() -> tuple[str, str]:
+    """
+    Read QWeather config.
+
+    Prefer Nowhere-specific variables.
+
+    Also accepts the HEFENG_* variables used
+    by the standalone weather MCP.
+    """
+
+    host = (
+        os.environ.get(
+            "NOWHERE_QWEATHER_HOST",
+            "",
+        ).strip()
+        or
+        os.environ.get(
+            "HEFENG_API_HOST",
+            "",
+        ).strip()
+    )
+
+    key = (
+        os.environ.get(
+            "NOWHERE_QWEATHER_KEY",
+            "",
+        ).strip()
+        or
+        os.environ.get(
+            "HEFENG_API_KEY",
+            "",
+        ).strip()
+    )
+
+    host = (
+        host
+        .removeprefix(
+            "https://"
+        )
+        .removeprefix(
+            "http://"
+        )
+        .rstrip("/")
+    )
+
+    return host, key
+
+
+async def _try_qweather(
+    lat: float,
+    lon: float,
+) -> dict[str, Any] | None:
+    """
+    Try QWeather.
+
+    Uses the account-specific API Host
+    and X-QW-Api-Key authentication.
+    """
+
+    host, key = (
+        _qweather_config()
+    )
+
+    if not host or not key:
+
+        logger.warning(
+            "QWeather skipped: "
+            "missing host/key. "
+            "Set "
+            "NOWHERE_QWEATHER_HOST + "
+            "NOWHERE_QWEATHER_KEY "
+            "or "
+            "HEFENG_API_HOST + "
+            "HEFENG_API_KEY."
+        )
+
         return None
-    url = f"https://devapi.qweather.com/v7/weather/now?location={lon},{lat}&key={key}"
-    data = await providers.fetch_json(url, source="qweather", cache_ttl=300)
-    if data is None:
-        return None
-    if str(data.get("code")) != "200":
-        return None
-    now = data.get("now")
-    if not now:
-        return None
+
+    url = (
+        f"https://{host}"
+        "/v7/weather/now"
+    )
+
+    params = {
+        "location": (
+            f"{lon:.2f},"
+            f"{lat:.2f}"
+        ),
+        "lang": "zh",
+        "unit": "m",
+    }
+
+    headers = {
+        "X-QW-Api-Key": key,
+        "Accept-Encoding": "gzip",
+        "User-Agent": (
+            "nowhere-mcp/0.1"
+        ),
+    }
+
     try:
-        temp = float(now["temp"])
-        feels = float(now["feelsLike"])
-        wind = float(now["windSpeed"])
-        humidity = float(now["humidity"])
-        text = now.get("text", "")
-    except (KeyError, ValueError, TypeError):
+
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(
+                8.0
+            ),
+            headers=headers,
+        ) as client:
+
+            response = (
+                await client.get(
+                    url,
+                    params=params,
+                )
+            )
+
+        if response.status_code != 200:
+
+            logger.warning(
+                "QWeather HTTP error: "
+                "status=%s body=%s",
+                response.status_code,
+                response.text[:300],
+            )
+
+            return None
+
+        data = response.json()
+
+    except Exception as exc:
+
+        logger.warning(
+            "QWeather request failed: %s",
+            exc,
+        )
+
         return None
+
+    if str(
+        data.get("code")
+    ) != "200":
+
+        logger.warning(
+            "QWeather API error: "
+            "code=%s",
+            data.get("code"),
+        )
+
+        return None
+
+    now = data.get("now")
+
+    if not now:
+
+        logger.warning(
+            "QWeather response "
+            "missing 'now' field"
+        )
+
+        return None
+
+    try:
+
+        temp = float(
+            now["temp"]
+        )
+
+        feels = float(
+            now["feelsLike"]
+        )
+
+        # QWeather windSpeed is km/h.
+        # Nowhere uses m/s.
+        wind = (
+            float(
+                now["windSpeed"]
+            )
+            / 3.6
+        )
+
+        humidity = float(
+            now["humidity"]
+        )
+
+        text = str(
+            now.get(
+                "text",
+                "",
+            )
+        )
+
+    except (
+        KeyError,
+        ValueError,
+        TypeError,
+    ) as exc:
+
+        logger.warning(
+            "QWeather response "
+            "parse failed: %s",
+            exc,
+        )
+
+        return None
+
     return {
         "temp_c": temp,
         "feels_c": feels,
-        "wind_ms": wind,
+        "wind_ms": round(
+            wind,
+            1,
+        ),
         "humidity": humidity,
-        "precip": _precip_from_text(text),
+        "precip": (
+            _precip_from_text(
+                text
+            )
+        ),
         "text": text,
         "source": "qweather",
     }
@@ -163,35 +450,100 @@ async def _try_qweather(lat: float, lon: float) -> dict[str, Any] | None:
 # ── Open-Meteo ─────────────────────────────────────────────────────
 
 
-async def _try_openmeteo(lat: float, lon: float) -> dict[str, Any] | None:
-    """Try Open-Meteo free API. Returns dict on success, None on failure."""
+async def _try_openmeteo(
+    lat: float,
+    lon: float,
+) -> dict[str, Any] | None:
+    """Try Open-Meteo free API."""
+
     url = (
-        f"https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,relative_humidity_2m,apparent_temperature,"
-        f"precipitation,weather_code,wind_speed_10m"
+        "https://api.open-meteo.com"
+        "/v1/forecast"
+        f"?latitude={lat}"
+        f"&longitude={lon}"
+        "&current="
+        "temperature_2m,"
+        "relative_humidity_2m,"
+        "apparent_temperature,"
+        "precipitation,"
+        "weather_code,"
+        "wind_speed_10m"
+        "&wind_speed_unit=ms"
     )
-    data = await providers.fetch_json(url, source="openmeteo", cache_ttl=300)
+
+    data = await providers.fetch_json(
+        url,
+        source="openmeteo",
+        cache_ttl=300,
+    )
+
     if data is None:
         return None
-    cur = data.get("current")
+
+    cur = data.get(
+        "current"
+    )
+
     if not cur:
         return None
+
     try:
-        temp = float(cur["temperature_2m"])
-        feels = float(cur["apparent_temperature"])
-        humidity = float(cur["relative_humidity_2m"])
-        wind = float(cur["wind_speed_10m"])
-        code = int(cur["weather_code"])
-        precip_val = float(cur.get("precipitation", 0))
-    except (KeyError, ValueError, TypeError):
+
+        temp = float(
+            cur["temperature_2m"]
+        )
+
+        feels = float(
+            cur["apparent_temperature"]
+        )
+
+        humidity = float(
+            cur[
+                "relative_humidity_2m"
+            ]
+        )
+
+        wind = float(
+            cur["wind_speed_10m"]
+        )
+
+        code = int(
+            cur["weather_code"]
+        )
+
+        precip_val = float(
+            cur.get(
+                "precipitation",
+                0,
+            )
+        )
+
+    except (
+        KeyError,
+        ValueError,
+        TypeError,
+    ):
+
         return None
-    # Look up WMO code
-    precip_type, text = _WMO_MAP.get(code, ("none", "未知"))
-    # If WMO says no precipitation but precipitation > 0, call it rain
-    if precip_type == "none" and precip_val > 0:
+
+    precip_type, text = (
+        _WMO_MAP.get(
+            code,
+            (
+                "none",
+                "未知",
+            ),
+        )
+    )
+
+    if (
+        precip_type == "none"
+        and precip_val > 0
+    ):
+
         precip_type = "rain"
         text = "降水"
+
     return {
         "temp_c": temp,
         "feels_c": feels,
@@ -206,44 +558,65 @@ async def _try_openmeteo(lat: float, lon: float) -> dict[str, Any] | None:
 # ── Public API ─────────────────────────────────────────────────────
 
 
-async def current(lat: float, lon: float, elevation: float | None = None,
-                  local_hour: int | None = None) -> dict[str, Any]:
-    """Return weather at (lat, lon).  Never None, never raises.
-
-    Fallback chain: qweather (CN only) -> Open-Meteo (accurate) -> climate zone offline (fast).
-    Open-Meteo already accounts for elevation, so lapse rate correction
-    is only applied to the climate fallback.
+async def current(
+    lat: float,
+    lon: float,
+    elevation: float | None = None,
+    local_hour: int | None = None,
+) -> dict[str, Any]:
     """
-    # 0) Try QWeather first (only fires when NOWHERE_QWEATHER_KEY is set).
-    #    It returns None fast when the key is missing, so non-CN callers pay
-    #    only one dict lookup.
+    Return weather at lat/lon.
+
+    Fallback chain:
+
+    QWeather
+    -> Open-Meteo
+    -> offline climate estimate
+    """
+
     try:
-        qw = await _try_qweather(lat, lon)
-        if qw is not None:
-            # QWeather already returns current temperature — no diurnal correction needed
-            return qw
-    except Exception:
-        pass
 
-    # 1) Try Open-Meteo next (accurate, accounts for elevation)
+        qweather = (
+            await _try_qweather(
+                lat,
+                lon,
+            )
+        )
+
+        if qweather is not None:
+            return qweather
+
+    except Exception as exc:
+
+        logger.warning(
+            "QWeather unexpected "
+            "failure: %s",
+            exc,
+        )
+
     try:
-        online = await _try_openmeteo(lat, lon)
-        if online is not None:
-            # Open-Meteo already returns current temperature — no diurnal correction needed
-            return online
-    except Exception:
-        pass
 
-    # 2) Climate zone offline fallback (needs lapse rate correction)
-    return _climate_fallback(lat, lon, elevation=elevation, local_hour=local_hour)
+        openmeteo = (
+            await _try_openmeteo(
+                lat,
+                lon,
+            )
+        )
 
-    # Diurnal variation: peak at 14:00, trough at 05:00
-    if local_hour is not None:
-        zone = _climate_zone(lat)
-        amplitude = 12.0 if zone in ("equator", "subtropical") else 8.0
-        hour_angle = (local_hour - 5) * (2 * math.pi / 24)
-        diurnal = amplitude * math.sin(hour_angle)
-        result["temp_c"] = round(result["temp_c"] + diurnal, 1)
-        result["feels_c"] = round(result["feels_c"] + diurnal, 1)
+        if openmeteo is not None:
+            return openmeteo
 
-    return result
+    except Exception as exc:
+
+        logger.warning(
+            "Open-Meteo unexpected "
+            "failure: %s",
+            exc,
+        )
+
+    return _climate_fallback(
+        lat,
+        lon,
+        elevation=elevation,
+        local_hour=local_hour,
+    )
