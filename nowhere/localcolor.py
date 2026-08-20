@@ -87,6 +87,7 @@ def draw(
     lat: float = 0.0,
     lon: float = 0.0,
     walk_step: int = 0,
+    month: int | None = None,
 ) -> dict | None:
     """抽一张没见过的卡 {"category", "text", "key"};抽完或无此地 → None。
 
@@ -112,7 +113,13 @@ def draw(
     # 手写层: filter Card objects by place and unseen
     handwritten_cards = [
         c for c in _load()
-        if c.conditions.get("place") == place_name and c.id not in seen
+        if c.conditions.get("place") == place_name
+        and c.id not in seen
+        and (
+            not c.conditions.get("months")
+            or month is None
+            or month in c.conditions.get("months", [])
+        )
     ]
     unseen_handwritten = len(handwritten_cards)
     has_local_food = False
@@ -161,6 +168,7 @@ def draw(
     if result is None:
         cat, key, text, _ = pool[-1]
         result = {"category": cat, "text": text, "key": key}
+
     # ── Card 54: record draw step for thin-place cooldown ───────────
     _thin_last_draw[place_name] = walk_step
     return result
@@ -212,6 +220,7 @@ def rhythm_event(
 
     if not hits:
         return None
+
     recent_set = set(recent or [])
     if recent_set:
         fresh = [h for h in hits if h not in recent_set]
@@ -219,4 +228,5 @@ def rhythm_event(
             # 当前时刻的卡全在 recent 里 → 安静比复读同一张卡好
             return None
         hits = fresh
+
     return rng.choice(hits)
