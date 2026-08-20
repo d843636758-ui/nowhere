@@ -993,6 +993,11 @@ async def _get_radio(lat: float, lon: float) -> dict | None:
             d = _km((lat, lon), (st_lat, st_lon))
             if d > 3000:
                 return None
+    # Card 71 B2: reject stations from wrong country (Budapest ≠ CZ radio)
+    if station is not None and cc:
+        st_cc = station.get("country", "")
+        if st_cc and st_cc != cc:
+            return None
     if station is not None:
         _state.radio_station = station
         _state.radio_pos = (lat, lon)
@@ -1277,10 +1282,21 @@ def _offline_water_nearby(lat: float, lon: float, radius_km: float = 50) -> list
     return hydrology.offline_water_nearby(lat, lon, radius_km=radius_km)
 
 
-def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
+def _find_river_segment(
+    name: str,
+    segment_hint: str = "",
+    lat: float | None = None,
+    lon: float | None = None,
+) -> dict | None:
     """Find a specific river segment from offline data.
 
     segment_hint: e.g. "上海段", "入海口", "三峡段". Empty = scenic default.
+    lat/lon: when both provided, score by haversine distance to each segment
+             (Card 71 — solves "Taicang gets Three Gorges" because the scenic
+             default ignores caller coordinates).
+             When lat or lon is None, fall back to the scenic default
+             (三峡 / 宜昌), preserving legacy behavior for hint-only callers.
+
     Returns {"lat": float, "lon": float, "segment_name": str} or None.
     """
     import json
@@ -1314,8 +1330,13 @@ def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
     if hint_lower in _SEGMENT_SYNONYMS:
         hint_keywords.extend(_SEGMENT_SYNONYMS[hint_lower])
 
+    # Card 71: when caller provides lat/lon, score by haversine distance so
+    # Taicang (31.45, 121.1) lands on 上海段 rather than 三峡段.
+    use_distance = lat is not None and lon is not None
+
     best = None
-    best_score = -1
+    # Use -inf so negative haversine scores still win over the sentinel.
+    best_score = float("-inf")
 
     for entry in entries:
         ename = entry.get("name", "")
@@ -1325,8 +1346,11 @@ def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
         if name not in ename and ename not in name:
             continue
 
+        elat = entry.get("lat", 30.7)
+        elon = entry.get("lon", 111.0)
+
         if hint_keywords:
-            # Must match at least one hint keyword in note
+            # Hint matches override distance — caller asked for a specific segment.
             if not any(kw in note for kw in hint_keywords):
                 continue
             # Score: prefer exact hint match, then synonym match
@@ -1334,16 +1358,23 @@ def _find_river_segment(name: str, segment_hint: str = "") -> dict | None:
                 score = 100 + len(note)
             else:
                 score = len(note)
+        elif use_distance:
+            # No hint but caller provided coords → nearest by haversine.
+            # Larger distance = lower score; nearest wins.
+            d_km = places._haversine_km(lat, lon, elat, elon)
+            score = -d_km
         else:
-            # No hint: prefer scenic segments (三峡, Gorges, etc.)
+            # Legacy: no hint, no coords → scenic fallback so callers like
+            # open_door('长江') without prior lat/lon still get a reasonable
+            # default (三峡 / 宜昌).
             scenic = any(s in note for s in ("三峡", "gorge", "scenic", "宜昌"))
             score = 100 if scenic else 0
 
         if score > best_score:
             best_score = score
             best = {
-                "lat": entry.get("lat", 30.7),
-                "lon": entry.get("lon", 111.0),
+                "lat": elat,
+                "lon": elon,
                 "segment_name": ename + (" " + entry["note"] if entry.get("note") else ""),
             }
 
@@ -2599,7 +2630,7 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             parts = to.split()
             if len(parts) > 1:
                 segment_hint = parts[-1]
-            seg = _find_river_segment("长江", segment_hint)
+            seg = _find_river_segment("长江", segment_hint, lat, lon)
             if seg:
                 lat, lon = seg["lat"], seg["lon"]
                 place_name = seg["segment_name"]
@@ -2700,6 +2731,13 @@ async def _open_door_locked(to: str | None = None, resume: bool = False, travele
             water_features = online_wf
     except Exception:
         pass  # offline result already populated
+
+    # Card 71 B1: filter water features by biome — inland city ≠ ocean
+    if water_features and (_state.biome or "") == "city":
+        _coastal_types = {"coast", "sea", "ocean", "bay", "gulf"}
+        _has_coastal = any(f.get("type", "") in _coastal_types for f in water_features)
+        if not _has_coastal:
+            water_features = [f for f in water_features if f.get("type", "") != "ocean"]
 
     # Build water feature description from offline data
     if water_features:

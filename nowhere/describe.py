@@ -1701,6 +1701,18 @@ def sanity_check(text: str, env: dict) -> str:
         if "太阳" in text and "落" not in text and "没" not in text:
             text = text.replace("太阳", "月亮")
 
+    # Card 71 B4: time_of_day gate — night/dawn ≠ sunset, day ≠ night scenes
+    if phase in ("night", "dawn", "nautical"):
+        # Dawn/night: no sunset sentences (夕阳/日落/晚霞/残阳)
+        _sunset_words = ["夕阳", "日落", "晚霞", "残阳", "落日"]
+        if any(w in text for w in _sunset_words):
+            text = "天还没亮,你继续走。" if phase == "dawn" else "周围安静下来,你继续走。"
+    elif phase == "day":
+        # Day: no moon/night sentences (月/星/夜幕/星辰) unless contextually neutral
+        _night_words = ["月亮", "月光", "星辰", "夜幕", "星空"]
+        if any(w in text for w in _night_words):
+            text = "阳光照过来,你眯了眯眼。"
+
     # Summer: soften frozen/ice references (but keep glacier/polar scenes intact)
     if season in ("summer", "spring"):
         if biome not in ("tundra", "glacier", "polar"):

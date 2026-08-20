@@ -112,22 +112,28 @@ def _pick_nearest_from_fallback(lat: float, lon: float, country_code: str | None
         if same_country is not None:
             return same_country
 
-    # 2. Same culture circle
+    # 2. Same culture circle (Card 71: cc mismatch rejection — Budapest ≠ CZ)
     if country_code:
         for _circle_name, circle_ccs in _CULTURE_CIRCLES.items():
             if country_code in circle_ccs:
-                circle_st = _find_nearest(circle_ccs)
-                if circle_st is not None:
-                    return circle_st
+                # Only match stations from the SAME country within the circle
+                same_cc_stations = [cc for cc in circle_ccs if cc == country_code]
+                if same_cc_stations:
+                    circle_st = _find_nearest(same_cc_stations)
+                    if circle_st is not None:
+                        return circle_st
                 break
 
-    # 3. Find globally nearest station
+    # 3. Find globally nearest station (Card 71: cc mismatch rejection)
     best: dict | None = None
     best_dist = math.inf
     for st in stations:
         st_lat = st.get("lat")
         st_lon = st.get("lon")
         if st_lat is None or st_lon is None:
+            continue
+        # Card 71: reject stations from wrong country
+        if country_code and st.get("country", "") != country_code:
             continue
         d = _haversine_km(lat, lon, st_lat, st_lon)
         if d < best_dist:
