@@ -413,6 +413,11 @@ def filter_by_card_meta(
         if card_lat_band and current_lat_band not in card_lat_band:
             continue
 
+        # Card 72: Biome check
+        card_biomes = m.get("biomes", [])
+        if card_biomes and current_biome not in card_biomes and "any" not in card_biomes:
+            continue
+
         filtered.append(text)
 
     return filtered if filtered else pool  # fallback to unfiltered if all removed

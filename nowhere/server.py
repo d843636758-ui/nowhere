@@ -897,10 +897,16 @@ _EMPTY_BURY_VARIANTS: list[str] = [
 
 
 def _load_scene_file(filename: str) -> dict[str, list[str]]:
-    """Load a [城市名] 描述 format file into {city: [descriptions]} dict."""
+    """Load a [城市名] 描述 format file into {city: [descriptions]} dict.
+
+    Card 72: supports [place|season] tags. Entries with a season tag are
+    stored in both the main result dict (for backward compat) and a
+    separate seasonal cache keyed by (place, season) for filtering.
+    """
     cache_key = f"_scene_{filename}"
     if not hasattr(_load_scene_file, cache_key):
         result: dict[str, list[str]] = {}
+        seasonal: dict[tuple[str, str], list[str]] = {}
         fp = describe._SCENE_DIR / f"{filename}.txt"
         if fp.exists():
             for line in fp.read_text(encoding="utf-8").splitlines():
@@ -909,11 +915,25 @@ def _load_scene_file(filename: str) -> dict[str, list[str]]:
                     continue
                 if "] " in line:
                     bracket_end = line.index("] ")
-                    place = line[1:bracket_end]
+                    bracket_content = line[1:bracket_end]
                     desc = line[bracket_end + 2:]
+                    if "|" in bracket_content:
+                        place, season = bracket_content.rsplit("|", 1)
+                        seasonal.setdefault((place, season), []).append(desc)
+                    else:
+                        place = bracket_content
                     result.setdefault(place, []).append(desc)
         setattr(_load_scene_file, cache_key, result)
+        setattr(_load_scene_file, f"_seasonal_{filename}", seasonal)
     return getattr(_load_scene_file, cache_key)
+
+
+def _get_seasonal_soundscape(filename: str) -> dict[tuple[str, str], list[str]]:
+    """Get seasonal entries from a scene file. Returns {(place, season): [descs]}."""
+    cache_key = f"_seasonal_{filename}"
+    if not hasattr(_load_scene_file, cache_key):
+        _load_scene_file(filename)
+    return getattr(_load_scene_file, cache_key, {})
 
 
 def _pick_fresh(pool: list[str], rng: random.Random) -> str | None:
@@ -4226,9 +4246,21 @@ async def look_around_impl() -> dict:
         sections.append(card["text"])
 
     # ── 3. Soundscape (from scene_soundscape.txt) ───────────────────
+    # Card 72: filter seasonal soundscape entries by current season
     soundscapes = _load_scene_file("scene_soundscape")
     if place in soundscapes:
-        text = _pick_fresh(soundscapes[place], _rng)
+        _ss_pool = soundscapes[place]
+        if now is not None:
+            _ss_season = describe._season(now.month, lat)
+            _ss_seasonal = _get_seasonal_soundscape("scene_soundscape")
+            # Build set of seasonal texts for this place that DON'T match current season
+            _ss_exclude: set[str] = set()
+            for (_sp, _sn), _sdescs in _ss_seasonal.items():
+                if _sp == place and _sn != _ss_season:
+                    _ss_exclude.update(_sdescs)
+            if _ss_exclude:
+                _ss_pool = [t for t in _ss_pool if t not in _ss_exclude]
+        text = _pick_fresh(_ss_pool, _rng)
         if text:
             sections.append(text)
 
@@ -4242,9 +4274,14 @@ async def look_around_impl() -> dict:
     # ── 4b. Biome-specific discovery (scene_discovery_{biome}.txt) ──
     # Ensures look_around always has biome content even when no
     # local color / soundscape / taste data exists for the place.
+    # Card 72: country-specific pool for city biome (3-tier fallback)
     biome = _state.biome or ""
     if biome:
-        disc_pool = describe._load_scenes(f"discovery_{biome}")
+        disc_pool = []
+        if biome == "city" and cc:
+            disc_pool = describe._load_scenes(f"discovery_city_{cc}")
+        if not disc_pool:
+            disc_pool = describe._load_scenes(f"discovery_{biome}")
         if disc_pool:
             biome_disc = _pick_fresh(disc_pool, _rng)
             if biome_disc:

@@ -8656,5 +8656,501 @@
       "zh": "桂花",
       "la": "Osmanthus fragrans"
     }
+  ],
+  "海口": [
+    {
+      "zh": "椰子",
+      "la": "Cocos nucifera"
+    },
+    {
+      "zh": "三角梅",
+      "la": "Bougainvillea spectabilis"
+    },
+    {
+      "zh": "槟榔",
+      "la": "Areca catechu"
+    },
+    {
+      "zh": "木麻黄",
+      "la": "Casuarina equisetifolia"
+    },
+    {
+      "zh": "鸡蛋花",
+      "la": "Plumeria rubra"
+    },
+    {
+      "zh": "龙血树",
+      "la": "Dracaena cambodiana"
+    },
+    {
+      "zh": "露兜树",
+      "la": "Pandanus tectorius"
+    }
+  ],
+  "南昌": [
+    {
+      "zh": "樟树",
+      "la": "Cinnamomum camphora"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "荷花",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "柚子",
+      "la": "Citrus maxima"
+    },
+    {
+      "zh": "茶树",
+      "la": "Camellia sinensis"
+    },
+    {
+      "zh": "柳树",
+      "la": "Salix babylonica"
+    }
+  ],
+  "淮安": [
+    {
+      "zh": "荷花",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "垂柳",
+      "la": "Salix babylonica"
+    },
+    {
+      "zh": "菱角",
+      "la": "Trapa natans"
+    },
+    {
+      "zh": "芡实",
+      "la": "Euryale ferox"
+    },
+    {
+      "zh": "菖蒲",
+      "la": "Acorus calamus"
+    },
+    {
+      "zh": "水杉",
+      "la": "Metasequoia glyptostroboides"
+    }
+  ],
+  "包头": [
+    {
+      "zh": "针茅",
+      "la": "Stipa capillata"
+    },
+    {
+      "zh": "羊草",
+      "la": "Leymus chinensis"
+    },
+    {
+      "zh": "冷蒿",
+      "la": "Artemisia frigida"
+    },
+    {
+      "zh": "蒙古韭",
+      "la": "Allium mongolicum"
+    },
+    {
+      "zh": "红砂",
+      "la": "Reaumuria soongarica"
+    },
+    {
+      "zh": "柠条锦鸡儿",
+      "la": "Caragana korshinskii"
+    },
+    {
+      "zh": "梭梭",
+      "la": "Haloxylon ammodendron"
+    },
+    {
+      "zh": "沙枣",
+      "la": "Elaeagnus angustifolia"
+    }
+  ],
+  "珠海": [
+    {
+      "zh": "木棉",
+      "la": "Bombax ceiba"
+    },
+    {
+      "zh": "椰子",
+      "la": "Cocos nucifera"
+    },
+    {
+      "zh": "三角梅",
+      "la": "Bougainvillea spectabilis"
+    },
+    {
+      "zh": "红树林",
+      "la": "Kandelia obovata"
+    },
+    {
+      "zh": "海杧果",
+      "la": "Cerbera manghas"
+    },
+    {
+      "zh": "露兜树",
+      "la": "Pandanus tectorius"
+    },
+    {
+      "zh": "黄槿",
+      "la": "Hibiscus tiliaceus"
+    }
+  ],
+  "贝伦": [
+    {
+      "zh": "巴西坚果树",
+      "la": "Bertholletia excelsa"
+    },
+    {
+      "zh": "橡胶树",
+      "la": "Hevea brasiliensis"
+    },
+    {
+      "zh": "王莲",
+      "la": "Victoria amazonica"
+    },
+    {
+      "zh": "巴西莓棕",
+      "la": "Euterpe oleracea"
+    },
+    {
+      "zh": "吉贝",
+      "la": "Ceiba pentandra"
+    },
+    {
+      "zh": "红树林",
+      "la": "Rhizophora mangle"
+    },
+    {
+      "zh": "亚马逊百合",
+      "la": "Eucharis amazonica"
+    }
+  ],
+  "喀山": [
+    {
+      "zh": "欧洲椴",
+      "la": "Tilia europaea"
+    },
+    {
+      "zh": "银白杨",
+      "la": "Populus alba"
+    },
+    {
+      "zh": "白柳",
+      "la": "Salix alba"
+    },
+    {
+      "zh": "欧洲赤松",
+      "la": "Pinus sylvestris"
+    },
+    {
+      "zh": "垂枝桦",
+      "la": "Betula pendula"
+    },
+    {
+      "zh": "沙棘",
+      "la": "Hippophae rhamnoides"
+    },
+    {
+      "zh": "草地鼠尾草",
+      "la": "Salvia pratensis"
+    }
+  ],
+  "伏尔加格勒": [
+    {
+      "zh": "白柳",
+      "la": "Salix alba"
+    },
+    {
+      "zh": "银白杨",
+      "la": "Populus alba"
+    },
+    {
+      "zh": "针茅",
+      "la": "Stipa capillata"
+    },
+    {
+      "zh": "沙枣",
+      "la": "Elaeagnus angustifolia"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "香蒲",
+      "la": "Typha latifolia"
+    },
+    {
+      "zh": "沙棘",
+      "la": "Hippophae rhamnoides"
+    },
+    {
+      "zh": "蒿",
+      "la": "Artemisia absinthium"
+    }
+  ],
+  "明尼阿波利斯": [
+    {
+      "zh": "白松",
+      "la": "Pinus strobus"
+    },
+    {
+      "zh": "糖枫",
+      "la": "Acer saccharum"
+    },
+    {
+      "zh": "纸皮桦",
+      "la": "Betula papyrifera"
+    },
+    {
+      "zh": "野生稻",
+      "la": "Zizania palustris"
+    },
+    {
+      "zh": "香蒲",
+      "la": "Typha latifolia"
+    },
+    {
+      "zh": "美洲落叶松",
+      "la": "Larix laricina"
+    },
+    {
+      "zh": "红栎",
+      "la": "Quercus rubra"
+    }
+  ],
+  "奇琴伊察": [
+    {
+      "zh": "吉贝",
+      "la": "Ceiba pentandra",
+      "text": "丛林里的圣树，玛雅人相信它连着天和地。树干粗得三个人抱不过来，根部的板根像墙一样撑开。你把手掌贴上去，树皮凉的，有蚂蚁在缝里爬。"
+    },
+    {
+      "zh": "仙人掌属",
+      "la": "Opuntia",
+      "text": "长在废墟的石缝里，扁平的叶片一节一节往上长。你摘了一颗红果子，手指被刺扎了。果肉是甜的，籽硬得硌牙。叶子断口流出黏稠的汁。"
+    },
+    {
+      "zh": "龙舌兰",
+      "la": "Agave americana",
+      "text": "金字塔脚下一丛一丛的，叶片厚实，边缘长着硬刺。你绕着走，还是被扎了裤腿。叶尖那根刺像针一样直指天空。"
+    },
+    {
+      "zh": "桃花心木",
+      "la": "Swietenia macrophylla",
+      "text": "丛林里的大树，树干笔直，树皮裂成灰褐色的碎块。你仰头看，树冠遮住了天空，只有零星的光漏下来。木质是红棕色的，摸着光滑。"
+    },
+    {
+      "zh": "号角树",
+      "la": "Cecropia peltata",
+      "text": "天井边长的，树干是空心的，你敲了敲，咚咚响。叶子大得像伞，背面是白色的。蚂蚁在叶柄的空腔里住着，你折断一根，蚂蚁涌出来。"
+    },
+    {
+      "zh": "兰花",
+      "la": "Orchidaceae",
+      "text": "攀在石柱和树枝上，根须裸露在空气里，灰绿色的。你蹲下来看一朵，花瓣小得指甲盖那么大，淡紫色，中心有细密的纹路。"
+    },
+    {
+      "zh": "蕨类",
+      "la": "Polypodiopsida",
+      "text": "石阶的裂缝里长出来的，叶子卷成问号形，慢慢展开。你用手指碰了一下，叶面上有水珠，凉的。"
+    }
+  ],
+  "梵蒂冈": [
+    {
+      "zh": "意大利柏",
+      "la": "Cupressus sempervirens"
+    },
+    {
+      "zh": "月桂",
+      "la": "Laurus nobilis"
+    },
+    {
+      "zh": "紫藤",
+      "la": "Wisteria sinensis"
+    },
+    {
+      "zh": "夹竹桃",
+      "la": "Nerium oleander"
+    },
+    {
+      "zh": "冬青",
+      "la": "Ilex aquifolium"
+    }
+  ],
+  "阿尔卑斯山": [
+    {
+      "zh": "雪绒花",
+      "la": "Leontopodium alpinum",
+      "text": "高山草甸上贴着地面长的,花瓣被白色绒毛裹住。你蹲下来摘一朵,绒毛扎手指。瑞士法郎上印的就是它。"
+    },
+    {
+      "zh": "高山杜鹃",
+      "la": "Rhododendron ferrugineum",
+      "text": "山坡上一丛一丛的,叶子背面有铁锈色的鳞片。你摘一片翻过来看,摸着粗糙。夏天开红花,铺了一整面山坡。"
+    },
+    {
+      "zh": "龙胆",
+      "la": "Gentiana australis",
+      "text": "草甸上的蓝花,蓝得发紫,花瓣厚实。你蹲下来看,花心有细密的纹路。摘一朵放在手心里,蓝色染了指尖。"
+    },
+    {
+      "zh": "欧洲落叶松",
+      "la": "Larix decidua",
+      "text": "针叶秋天变黄,整片山坡变成金色。你捡一根落了的针叶,软的,比松针宽。树干笔直,树皮裂成灰褐色的碎块。"
+    },
+    {
+      "zh": "瑞士石松",
+      "la": "Pinus cembra",
+      "text": "高山上的松树,长得慢,树干粗短。松果里的松子你用指甲抠出来,白色的,嚼着有油脂的香。"
+    },
+    {
+      "zh": "高山火绒草",
+      "la": "Leontopodium nivale",
+      "text": "比雪绒花更小,长在碎石缝里。花瓣紧紧贴在一起,你用指甲掐,硬的。风把它吹得贴着地面,根扎在石缝深处。"
+    },
+    {
+      "zh": "高山报春",
+      "la": "Primula auricula",
+      "text": "岩石缝里长出来的,黄色的花一簇一簇的。叶子厚,表面有白粉,你用手指搓,粉掉下来。花瓣摸着像绸子。"
+    }
+  ],
+  "东营": [
+    {
+      "zh": "翅碱蓬",
+      "la": "Suaeda salsa"
+    },
+    {
+      "zh": "芦苇",
+      "la": "Phragmites australis"
+    },
+    {
+      "zh": "柽柳",
+      "la": "Tamarix chinensis"
+    },
+    {
+      "zh": "獐毛",
+      "la": "Aeluropus sinensis"
+    },
+    {
+      "zh": "补血草",
+      "la": "Limonium sinense"
+    },
+    {
+      "zh": "盐角草",
+      "la": "Salicornia europaea"
+    },
+    {
+      "zh": "白刺",
+      "la": "Nitraria sibirica"
+    },
+    {
+      "zh": "罗布麻",
+      "la": "Apocynum venetum"
+    },
+    {
+      "zh": "狗尾草",
+      "la": "Setaria viridis"
+    },
+    {
+      "zh": "碱蓬",
+      "la": "Suaeda glauca"
+    },
+    {
+      "zh": "藜",
+      "la": "Chenopodium album"
+    },
+    {
+      "zh": "冬枣",
+      "la": "Ziziphus jujuba"
+    }
+  ],
+  "不丹": [
+    {
+      "zh": "杜鹃花",
+      "la": "Rhododendron arboreum"
+    },
+    {
+      "zh": "蓝罂粟",
+      "la": "Meconopsis grandis"
+    },
+    {
+      "zh": "喜马拉雅柏",
+      "la": "Cupressus torulosa"
+    },
+    {
+      "zh": "喜马拉雅冷杉",
+      "la": "Abies spectabilis"
+    },
+    {
+      "zh": "杜松",
+      "la": "Juniperus recurva"
+    }
+  ],
+  "乌布": [
+    {
+      "zh": "鸡蛋花",
+      "la": "Plumeria rubra"
+    },
+    {
+      "zh": "椰子",
+      "la": "Cocos nucifera"
+    },
+    {
+      "zh": "瓷玫瑰",
+      "la": "Etlingera elatior"
+    },
+    {
+      "zh": "朱槿",
+      "la": "Hibiscus rosa-sinensis"
+    },
+    {
+      "zh": "菩提树",
+      "la": "Ficus religiosa"
+    },
+    {
+      "zh": "香蕉",
+      "la": "Musa acuminata"
+    },
+    {
+      "zh": "露兜树",
+      "la": "Pandanus amaryllifolius"
+    },
+    {
+      "zh": "红毛丹",
+      "la": "Nephelium lappaceum"
+    },
+    {
+      "zh": "山竹",
+      "la": "Garcinia mangostana"
+    },
+    {
+      "zh": "蛇皮果",
+      "la": "Salacca zalacca"
+    },
+    {
+      "zh": "香茅",
+      "la": "Cymbopogon citratus"
+    },
+    {
+      "zh": "姜花",
+      "la": "Hedychium coronarium"
+    }
   ]
 }
