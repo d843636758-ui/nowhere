@@ -7846,5 +7846,159 @@
       "zh": "杏仁",
       "la": "Prunus dulcis"
     }
+  ],
+  "大连": [
+    {
+      "zh": "黑松",
+      "la": "Pinus thunbergii"
+    },
+    {
+      "zh": "刺槐",
+      "la": "Robinia pseudoacacia"
+    },
+    {
+      "zh": "日本晚樱",
+      "la": "Cerasus serrulata var. lannesiana"
+    },
+    {
+      "zh": "银杏",
+      "la": "Ginkgo biloba"
+    },
+    {
+      "zh": "紫薇",
+      "la": "Lagerstroemia indica"
+    },
+    {
+      "zh": "月季",
+      "la": "Rosa chinensis"
+    },
+    {
+      "zh": "木槿",
+      "la": "Hibiscus syriacus"
+    }
+  ],
+  "无锡": [
+    {
+      "zh": "染井吉野樱",
+      "la": "Cerasus × yedoensis"
+    },
+    {
+      "zh": "银杏",
+      "la": "Ginkgo biloba"
+    },
+    {
+      "zh": "桂花",
+      "la": "Osmanthus fragrans"
+    },
+    {
+      "zh": "水杉",
+      "la": "Metasequoia glyptostroboides"
+    },
+    {
+      "zh": "荷花",
+      "la": "Nelumbo nucifera"
+    },
+    {
+      "zh": "紫藤",
+      "la": "Wisteria sinensis"
+    },
+    {
+      "zh": "茶树",
+      "la": "Camellia sinensis"
+    }
+  ],
+  "南宁": [
+    {
+      "zh": "扁桃",
+      "la": "Mangifera persiciforma"
+    },
+    {
+      "zh": "三角梅",
+      "la": "Bougainvillea spectabilis"
+    },
+    {
+      "zh": "木棉",
+      "la": "Bombax ceiba"
+    },
+    {
+      "zh": "茉莉花",
+      "la": "Jasminum sambac"
+    },
+    {
+      "zh": "紫荆",
+      "la": "Cercis chinensis"
+    },
+    {
+      "zh": "龙眼",
+      "la": "Dimocarpus longan"
+    },
+    {
+      "zh": "芭蕉",
+      "la": "Musa basjoo"
+    },
+    {
+      "zh": "朱槿",
+      "la": "Hibiscus rosa-sinensis"
+    }
+  ],
+  "乌鲁木齐": [
+    {
+      "zh": "雪岭云杉",
+      "la": "Picea schrenkiana"
+    },
+    {
+      "zh": "新疆杨",
+      "la": "Populus alba var. pyramidalis"
+    },
+    {
+      "zh": "骆驼刺",
+      "la": "Alhagi sparsifolia"
+    },
+    {
+      "zh": "红柳",
+      "la": "Tamarix ramosissima"
+    },
+    {
+      "zh": "沙枣",
+      "la": "Elaeagnus angustifolia"
+    },
+    {
+      "zh": "薰衣草",
+      "la": "Lavandula angustifolia"
+    },
+    {
+      "zh": "贝母",
+      "la": "Fritillaria walujewii"
+    }
+  ],
+  "兰州": [
+    {
+      "zh": "旱柳",
+      "la": "Salix matsudana"
+    },
+    {
+      "zh": "国槐",
+      "la": "Styphnolobium japonicum"
+    },
+    {
+      "zh": "侧柏",
+      "la": "Platycladus orientalis"
+    },
+    {
+      "zh": "白刺",
+      "la": "Nitraria tangutorum"
+    },
+    {
+      "zh": "兰州百合",
+      "la": "Lilium davidii var. unicolor"
+    },
+    {
+      "zh": "枸杞",
+      "la": "Lycium barbarum"
+    },
+    {
+      "zh": "柠条",
+      "la": "Caragana korshinskii"
+    }
   ]
 }
